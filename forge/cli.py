@@ -56,6 +56,42 @@ def test(
 
 
 @app.command()
+def history(
+    status_filter: str | None = typer.Option(None, "--status", "-s", help="Filter by status"),
+    limit: int | None = typer.Option(None, "--limit", "-n", help="Max results"),
+) -> None:
+    """Show a table of past hypotheses."""
+    settings = get_settings()
+    store = Store(settings.db_path)
+
+    hypotheses = store.list_hypotheses(status=status_filter)
+    if limit is not None:
+        hypotheses = hypotheses[:limit]
+
+    if not hypotheses:
+        console.print("[dim]No hypotheses yet.[/dim]")
+        return
+
+    table = Table(title="Hypotheses")
+    table.add_column("ID", style="dim", max_width=12)
+    table.add_column("Claim", max_width=50)
+    table.add_column("Confidence", justify="right")
+    table.add_column("Status")
+    table.add_column("Created", style="dim")
+
+    for h in hypotheses:
+        table.add_row(
+            h.id[:12],
+            h.claim[:50],
+            str(h.confidence),
+            h.status,
+            h.created_at[:19],
+        )
+
+    console.print(table)
+
+
+@app.command()
 def status() -> None:
     """Show system health and database statistics."""
     settings = get_settings()
