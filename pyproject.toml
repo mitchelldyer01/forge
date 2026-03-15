@@ -33,6 +33,10 @@ markers = [
     "slow: tests that take > 2s",
 ]
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
