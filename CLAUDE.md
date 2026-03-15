@@ -98,3 +98,54 @@ The cycle is: RED → GREEN → REFACTOR → COMMIT. No exceptions.
 ### Task-Level TDD Flow
 
 For each backlog task (e.g., P0.1), the workflow is:
+
+```
+SPEC: Write acceptance criteria in TASKS.md
+RED: Write all tests for this task's acceptance criteria
+→ Run pytest → All new tests FAIL (existing tests still pass)
+GREEN: Implement until all tests pass
+→ Run pytest → ALL tests pass
+REFACTOR: Clean up implementation while staying green
+→ Run pytest after each change → ALL tests pass
+LINT: Run ruff check → clean
+COMMIT: phase0: P0.1 — SQLite schema + store + models
+```
+
+## Code Standards
+- Python 3.12+. Type hints on all function signatures.
+- No ORM. Raw SQL in forge/db/store.py. Pydantic models in forge/db/models.py.
+- All IDs are ULIDs with type prefixes: h_, e_, r_, s_, st_, ap_, p_, a_, f_.
+- All timestamps are ISO 8601 UTC strings.
+- All LLM outputs are JSON. Use response_format={"type": "json_object"}.
+- Handle malformed LLM JSON gracefully (retry once, then log and skip).
+- All LLM calls go through forge/llm/client.py. Never call httpx directly elsewhere.
+- Prompts live in markdown files under relevant prompts/ dirs. Never hardcode prompt text.
+- Tests use MockLLMClient (defined in tests/conftest.py). Never hit real inference.
+- One function, one job. Files under 200 lines. Split when larger.
+- Use `async def` for anything involving LLM calls or I/O.
+
+## Test Infrastructure (tests/conftest.py)
+
+The conftest.py file must provide these fixtures:
+
+- `db` — fresh in-memory SQLite Store instance, schema applied, torn down after test
+- `mock_llm` — MockLLMClient that returns configurable JSON responses
+- `sample_hypothesis` — a pre-built Hypothesis model for reuse
+- `sample_evidence` — a pre-built Evidence model for reuse
+
+MockLLMClient must support:
+- `set_response(json_dict)` — next call returns this JSON
+- `set_responses([json_dict, ...])` — queue multiple responses in order
+- `set_error(status_code)` — next call raises an HTTP error
+- `call_count` — how many times complete() was called
+- `last_messages` — the messages from the most recent call
+
+## Dependencies
+Only add dependencies listed in FORGE-ARCHITECTURE.md Section 13.
+If you need something not listed, state why before adding.
+
+## Git
+- Commit after each completed task (not mid-task).
+- Message format: `phase0: P0.X — short description`
+- Run pytest + ruff before every commit. Do not commit with failures.
+- Never commit with a red test. If you can't make it green, revert.
