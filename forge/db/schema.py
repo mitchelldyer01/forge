@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS hypotheses (
     human_endorsed INTEGER DEFAULT 0,
     human_rejected INTEGER DEFAULT 0,
     tags TEXT,
+    embedding BLOB,
     FOREIGN KEY (parent_id) REFERENCES hypotheses(id)
 );
 

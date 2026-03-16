@@ -188,6 +188,14 @@ class Store:
         ).fetchall()
         return [Relation(**dict(r)) for r in rows]
 
+    def list_relations_for_hypothesis(self, h_id: str) -> list[Relation]:
+        """List all relations where the hypothesis is source or target."""
+        rows = self.conn.execute(
+            "SELECT * FROM relations WHERE source_id = ? OR target_id = ?",
+            (h_id, h_id),
+        ).fetchall()
+        return [Relation(**dict(r)) for r in rows]
+
     def list_relations_by_target(self, target_id: str) -> list[Relation]:
         rows = self.conn.execute(
             "SELECT * FROM relations WHERE target_id = ?", (target_id,)
@@ -218,3 +226,22 @@ class Store:
             id=f_id, hypothesis_id=hypothesis_id, prediction_id=prediction_id,
             action=action, note=note, created_at=now,
         )
+
+    # ------------------------------------------------------------------
+    # Stats
+    # ------------------------------------------------------------------
+
+    def count_hypotheses_by_status(self) -> dict[str, int]:
+        """Count hypotheses grouped by status."""
+        rows = self.conn.execute(
+            "SELECT status, COUNT(*) as cnt FROM hypotheses GROUP BY status"
+        ).fetchall()
+        return {row["status"]: row["cnt"] for row in rows}
+
+    def count_evidence(self) -> int:
+        row = self.conn.execute("SELECT COUNT(*) as cnt FROM evidence").fetchone()
+        return row["cnt"]
+
+    def count_feedback(self) -> int:
+        row = self.conn.execute("SELECT COUNT(*) as cnt FROM feedback").fetchone()
+        return row["cnt"]

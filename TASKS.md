@@ -3,21 +3,45 @@
 ## Phase 0: The Kernel
 
 ### P0.1: Database layer (schema + store + models)
+**Status:** COMPLETE
 
-**Status:** IN PROGRESS
+### P0.2: Config + LLM client
+**Status:** COMPLETE
 
-**Acceptance Criteria:**
-- [ ] All tables from FORGE-ARCHITECTURE.md Section 4 created via schema.py
-- [ ] All indexes from Section 4 created
-- [ ] WAL mode enabled on file-backed connections
-- [ ] In-memory DB works for tests
-- [ ] ULID generation with type prefixes (h_, e_, r_, s_, st_, ap_, p_, a_, f_)
-- [ ] All timestamps auto-populated as ISO 8601 UTC
-- [ ] Pydantic models for: Hypothesis, Evidence, Relation, Simulation, AgentPersona, SimulationTurn, Prediction, Feed, Article, Feedback, CalibrationSnapshot
-- [ ] Store provides typed CRUD methods:
-  - Hypothesis: create, get_by_id, update, list_by_status, list_by_confidence_range
-  - Evidence: create, get_by_id
-  - Relation: create, list_by_source, list_by_target
-  - Feedback: create
-- [ ] All Store methods return Pydantic models, not raw dicts/tuples
-- [ ] Edge cases handled: missing required fields raise errors, invalid status values rejected
+### P0.3: System prompts
+**Status:** COMPLETE
+
+### P0.4: Structured analysis pipeline
+**Status:** COMPLETE
+
+### P0.5+P0.6: CLI entrypoint + persistence
+**Status:** COMPLETE
+
+### P0.7: History command
+**Status:** COMPLETE
+
+### P0.8: Status command
+**Status:** COMPLETE
+
+## Phase 1: Memory & Retrieval
+
+### P1.1: Embedding generation
+**Status:** COMPLETE
+
+### P1.2: Similarity search
+**Status:** COMPLETE
+
+### P1.3: Context injection
+**Status:** COMPLETE
+
+### P1.4: Relation extraction in judge
+**Status:** COMPLETE
+
+### P1.5: Graph command
+**Status:** COMPLETE
+
+### P1.6-P1.7: Test coverage
+**Status:** COMPLETE — 93% coverage (target: 85%), 117 tests
+
+## Phase 2: Swarm Simulation
+**Status:** NOT STARTED

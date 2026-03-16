@@ -26,6 +26,7 @@ class Hypothesis(BaseModel):
     human_endorsed: int = 0
     human_rejected: int = 0
     tags: list[str] | None = None
+    embedding: bytes | None = None
 
     @field_validator("tags", mode="before")
     @classmethod
