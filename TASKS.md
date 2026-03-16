@@ -73,4 +73,27 @@
 **Status:** COMPLETE — 93% coverage overall, 91% on forge/swarm/, 211 tests
 
 ## Phase 3: Continuous Ingestion + Calibration
-**Status:** NOT STARTED
+
+### P3.1: RSS Feed Polling + Article Storage
+**Status:** COMPLETE
+
+### P3.2: Claim Extraction from Articles
+**Status:** COMPLETE
+
+### P3.3: Relevance Filtering
+**Status:** COMPLETE
+
+### P3.4: Pipeline Runner + Scheduling
+**Status:** COMPLETE
+
+### P3.5: Resolution Tracking
+**Status:** COMPLETE
+
+### P3.6: Calibration Scoring
+**Status:** COMPLETE
+
+### P3.7: Drift Detection
+**Status:** COMPLETE
+
+### P3.8: Coverage + Cleanup
+**Status:** COMPLETE — 87% coverage overall, 93% on Phase 3 code, 287 tests

@@ -244,6 +244,65 @@ class TestRSSPolling:
 
         assert articles == []
 
+    def test_poll_feed_skips_entries_without_link(self, db: Store) -> None:
+        from forge.ingest.rss import poll_feed
+
+        feed = db.save_feed(name="Test", url="https://example.com/feed")
+        mock_entries = [MagicMock(link=None)]  # No link attribute
+        mock_parsed = MagicMock()
+        mock_parsed.entries = mock_entries
+        mock_parsed.bozo = False
+
+        with patch("forge.ingest.rss.feedparser.parse", return_value=mock_parsed):
+            articles = poll_feed(feed, db)
+
+        assert articles == []
+
+    def test_poll_feed_extracts_published_date(self, db: Store) -> None:
+        import time
+
+        from forge.ingest.rss import poll_feed
+        feed = db.save_feed(name="Test", url="https://example.com/feed")
+        published_time = time.strptime("2024-01-15", "%Y-%m-%d")
+        entry = MagicMock(
+            link="https://example.com/dated-post",
+            published_parsed=published_time,
+        )
+        entry.get = lambda k, d=None: "Dated Post" if k == "title" else d
+
+        mock_parsed = MagicMock()
+        mock_parsed.entries = [entry]
+        mock_parsed.bozo = False
+
+        with patch("forge.ingest.rss.feedparser.parse", return_value=mock_parsed):
+            articles = poll_feed(feed, db)
+
+        assert len(articles) == 1
+        assert articles[0].published_at is not None
+        assert "2024-01-15" in articles[0].published_at
+
+    def test_poll_all_feeds_skips_recently_polled(self, db: Store) -> None:
+        from datetime import UTC, datetime
+
+        from forge.ingest.rss import poll_all_feeds
+
+        feed = db.save_feed(
+            name="Recent", url="https://recent.com/feed",
+            poll_interval_minutes=240,
+        )
+        # Mark as just polled
+        db.update_feed(feed.id, last_polled_at=datetime.now(UTC).isoformat())
+
+        mock_parsed = MagicMock()
+        mock_parsed.entries = []
+        mock_parsed.bozo = False
+
+        with patch("forge.ingest.rss.feedparser.parse", return_value=mock_parsed):
+            result = poll_all_feeds(db)
+
+        # Feed should be skipped
+        assert result == {}
+
     def test_poll_all_feeds_polls_due_feeds(self, db: Store) -> None:
         from forge.ingest.rss import poll_all_feeds
 
