@@ -44,4 +44,33 @@
 **Status:** COMPLETE — 93% coverage (target: 85%), 117 tests
 
 ## Phase 2: Swarm Simulation
+
+### P2.0: Store CRUD for Swarm Entities
+**Status:** COMPLETE
+
+### P2.1: Agent Persona Generation
+**Status:** COMPLETE
+
+### P2.3: Interaction Selection
+**Status:** COMPLETE
+
+### P2.4: Consensus Extraction
+**Status:** COMPLETE
+
+### P2.2: Arena — Multi-Round Simulation Loop
+**Status:** COMPLETE
+
+### P2.5: Prediction Extraction
+**Status:** COMPLETE
+
+### P2.6: CLI `forge simulate` Command
+**Status:** COMPLETE
+
+### P2.7: Upgrade Path (Flag Only)
+**Status:** COMPLETE
+
+### P2.8: Coverage + Cleanup
+**Status:** COMPLETE — 93% coverage overall, 91% on forge/swarm/, 211 tests
+
+## Phase 3: Continuous Ingestion + Calibration
 **Status:** NOT STARTED

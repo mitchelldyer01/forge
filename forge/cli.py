@@ -14,6 +14,7 @@ from forge.analyze.structured import analyze
 from forge.config import Settings
 from forge.db.store import Store
 from forge.llm.client import LLMClient
+from forge.swarm.population import SeedMaterial
 
 app = typer.Typer(
     name="forge",
@@ -102,6 +103,20 @@ def test(
             save_verdict_relations(h.id, verdict, store)
         except Exception:
             pass  # Relations are optional
+        # Flag high-confidence claims for swarm simulation
+        if verdict.confidence > 60:
+            try:
+                store.save_simulation(
+                    mode="claim_test",
+                    seed_text=claim,
+                    seed_context=context,
+                )
+                console.print(
+                    f"\n[dim]This claim scored {verdict.confidence} confidence. "
+                    f"Run `forge simulate '{claim}'` for deeper analysis.[/dim]"
+                )
+            except Exception:
+                pass  # Queuing is optional
     except Exception as e:
         console.print(f"[yellow]Warning: could not persist result: {e}[/yellow]")
 
@@ -265,3 +280,139 @@ def graph(
             )
 
     console.print(tree)
+
+
+@app.command()
+def simulate(
+    scenario: str = typer.Argument(help="The scenario to simulate"),
+    context: str | None = typer.Option(None, "--context", "-c", help="Background context"),
+    agents: int | None = typer.Option(None, "--agents", "-a", help="Number of agents"),
+    rounds: int | None = typer.Option(None, "--rounds", "-r", help="Number of rounds"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON"),
+) -> None:
+    """Run a full swarm simulation on a scenario."""
+    from forge.swarm.arena import run_simulation
+    from forge.swarm.population import generate_population
+    from forge.swarm.predictions import extract_predictions
+
+    settings = Settings()
+    agent_count = agents or settings.default_swarm_size
+    round_count = rounds or settings.simulation_rounds
+
+    try:
+        llm = _get_llm()
+        store = _get_store()
+        seed = SeedMaterial(text=scenario, context=context)
+
+        # Run the full pipeline
+        result = asyncio.run(_run_simulate(
+            seed, llm, store, agent_count, round_count,
+            generate_population, run_simulation, extract_predictions,
+        ))
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}", style="bold red")
+        raise typer.Exit(code=1) from e
+
+    if json_output:
+        output = {
+            "simulation_id": result["simulation"].id,
+            "status": result["simulation"].status,
+            "agent_count": result["simulation"].agent_count,
+            "rounds": result["simulation"].rounds,
+            "duration_seconds": result["sim_result"].duration_seconds,
+            "majority_position": result["consensus"].majority_position,
+            "majority_confidence": result["consensus"].majority_confidence,
+            "majority_fraction": result["consensus"].majority_fraction,
+            "predictions": [
+                {"id": p.id, "claim": p.claim, "confidence": p.confidence}
+                for p in result["predictions"]
+            ],
+        }
+        typer.echo(json.dumps(output, indent=2))
+        return
+
+    _render_simulation(result)
+
+
+async def _run_simulate(seed, llm, store, agent_count, round_count,
+                        gen_pop, run_sim, extract_preds):
+    """Orchestrate the full simulation pipeline."""
+    population = await gen_pop(seed, llm, store, count=agent_count)
+    sim_result = await run_sim(
+        seed, population, llm, store, rounds=round_count, max_concurrent=8,
+    )
+    predictions = await extract_preds(
+        seed, sim_result.consensus, llm, store, sim_result.simulation.id,
+    )
+    return {
+        "simulation": sim_result.simulation,
+        "sim_result": sim_result,
+        "consensus": sim_result.consensus,
+        "predictions": predictions,
+    }
+
+
+def _render_simulation(result: dict) -> None:
+    """Render simulation results as Rich output."""
+    from rich.table import Table
+
+    sim = result["simulation"]
+    consensus = result["consensus"]
+    predictions = result["predictions"]
+    sim_result = result["sim_result"]
+
+    # Header panel
+    color = (
+        "green" if consensus.majority_confidence >= 60
+        else "yellow" if consensus.majority_confidence >= 40
+        else "red"
+    )
+    panel_content = (
+        f"[bold]Agents:[/bold] {sim.agent_count}  "
+        f"[bold]Rounds:[/bold] {sim.rounds}  "
+        f"[bold]Duration:[/bold] {sim_result.duration_seconds:.1f}s\n\n"
+        f"[bold]Majority:[/bold] {consensus.majority_position} "
+        f"[{color}]({consensus.majority_confidence:.0f}% confidence, "
+        f"{consensus.majority_fraction:.0%} of agents)[/{color}]"
+    )
+
+    if consensus.dissent_clusters:
+        panel_content += "\n\n[bold]Dissent:[/bold]"
+        for cluster in consensus.dissent_clusters:
+            panel_content += (
+                f"\n  {cluster.position}: {cluster.agent_count} agents "
+                f"({cluster.avg_confidence:.0f}% confidence)"
+            )
+
+    if consensus.conviction_shifts:
+        panel_content += "\n\n[bold]Changed minds:[/bold]"
+        for shift in consensus.conviction_shifts:
+            panel_content += (
+                f"\n  {shift.archetype}: {shift.from_position} → {shift.to_position}"
+            )
+
+    console.print(Panel(panel_content, title="[bold]FORGE Simulation[/bold]"))
+
+    # Predictions table
+    if predictions:
+        table = Table(title="Predictions")
+        table.add_column("Claim", max_width=60)
+        table.add_column("Conf", justify="right")
+        table.add_column("Consensus", justify="right")
+        table.add_column("Deadline", style="dim")
+
+        for p in predictions:
+            conf_color = (
+                "green" if p.confidence >= 60
+                else "yellow" if p.confidence >= 40
+                else "red"
+            )
+            table.add_row(
+                p.claim[:57] + "..." if len(p.claim) > 60 else p.claim,
+                f"[{conf_color}]{p.confidence}[/{conf_color}]",
+                f"{p.consensus_strength:.0%}" if p.consensus_strength else "-",
+                p.resolution_deadline[:10] if p.resolution_deadline else "-",
+            )
+        console.print(table)
+    else:
+        console.print("[dim]No predictions extracted.[/dim]")
