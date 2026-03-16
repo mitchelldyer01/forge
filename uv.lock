@@ -206,6 +206,7 @@ dev = [
 [package.dev-dependencies]
 dev = [
     { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
     { name = "pytest-httpx" },
 ]
 
@@ -230,6 +231,7 @@ provides-extras = ["dev"]
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest-asyncio", specifier = ">=1.3.0" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "pytest-httpx", specifier = ">=0.36.0" },
 ]
 
