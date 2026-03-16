@@ -226,3 +226,42 @@ def status() -> None:
         console.print(f"  Model: {model_name}")
     else:
         console.print("  Status: [red]unreachable[/red]")
+
+
+@app.command()
+def graph(
+    hypothesis_id: str = typer.Argument(help="Hypothesis ID to show graph for"),
+) -> None:
+    """Show a hypothesis and its relations as a tree."""
+    from rich.tree import Tree
+
+    store = _get_store()
+    h = store.get_hypothesis(hypothesis_id)
+
+    if h is None:
+        console.print(f"Hypothesis [bold]{hypothesis_id}[/bold] not found.")
+        return
+
+    tree = Tree(f"[bold]{h.claim}[/bold] (conf: {h.confidence}, {h.status})")
+
+    relations = store.list_relations_for_hypothesis(h.id)
+    if not relations:
+        tree.add("[dim]No relations[/dim]")
+    else:
+        for rel in relations:
+            # Determine direction
+            if rel.source_id == h.id:
+                other_id = rel.target_id
+                direction = "→"
+            else:
+                other_id = rel.source_id
+                direction = "←"
+            other = store.get_hypothesis(other_id)
+            other_label = other.claim if other else other_id
+            tree.add(
+                f"{direction} [cyan]{rel.relation_type}[/cyan]: "
+                f"{other_label}"
+                + (f" [dim]({rel.reasoning})[/dim]" if rel.reasoning else "")
+            )
+
+    console.print(tree)

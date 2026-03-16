@@ -155,3 +155,46 @@ class TestForgeStatus:
                 result = runner.invoke(app, ["status"])
             assert result.exit_code == 0
             assert "unreachable" in result.output.lower()
+
+
+class TestForgeGraph:
+    @pytest.mark.integration
+    def test_graph_shows_hypothesis_and_relations(self) -> None:
+        with patch("forge.cli._get_store") as mock_store:
+            from forge.db.store import Store
+
+            store = Store(":memory:")
+            h1 = store.save_hypothesis(claim="AI will grow", source="manual")
+            h2 = store.save_hypothesis(claim="SaaS will decline", source="manual")
+            store.save_relation(h1.id, h2.id, "supports", reasoning="AI replaces SaaS")
+            mock_store.return_value = store
+
+            result = runner.invoke(app, ["graph", h1.id])
+            assert result.exit_code == 0
+            assert "AI will grow" in result.output
+            assert "SaaS will decline" in result.output
+            assert "supports" in result.output
+
+    @pytest.mark.integration
+    def test_graph_hypothesis_not_found(self) -> None:
+        with patch("forge.cli._get_store") as mock_store:
+            from forge.db.store import Store
+
+            mock_store.return_value = Store(":memory:")
+            result = runner.invoke(app, ["graph", "h_nonexistent"])
+            assert result.exit_code == 0
+            assert "not found" in result.output.lower()
+
+    @pytest.mark.integration
+    def test_graph_no_relations(self) -> None:
+        with patch("forge.cli._get_store") as mock_store:
+            from forge.db.store import Store
+
+            store = Store(":memory:")
+            h = store.save_hypothesis(claim="Standalone claim", source="manual")
+            mock_store.return_value = store
+
+            result = runner.invoke(app, ["graph", h.id])
+            assert result.exit_code == 0
+            assert "Standalone claim" in result.output
+            assert "No relations" in result.output

@@ -188,6 +188,14 @@ class Store:
         ).fetchall()
         return [Relation(**dict(r)) for r in rows]
 
+    def list_relations_for_hypothesis(self, h_id: str) -> list[Relation]:
+        """List all relations where the hypothesis is source or target."""
+        rows = self.conn.execute(
+            "SELECT * FROM relations WHERE source_id = ? OR target_id = ?",
+            (h_id, h_id),
+        ).fetchall()
+        return [Relation(**dict(r)) for r in rows]
+
     def list_relations_by_target(self, target_id: str) -> list[Relation]:
         rows = self.conn.execute(
             "SELECT * FROM relations WHERE target_id = ?", (target_id,)
