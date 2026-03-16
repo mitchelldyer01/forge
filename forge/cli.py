@@ -47,8 +47,21 @@ def test(
     """Test a hypothesis through structured analysis (steelman → redteam → judge)."""
     try:
         llm = _get_llm()
+        # Retrieve prior context if available
+        prior_hypotheses = None
+        existing_hypotheses = None
+        try:
+            store = _get_store()
+            prior_hypotheses, existing_hypotheses = _retrieve_context(claim, store)
+        except Exception:
+            store = None  # Will create fresh for persistence
+
         verdict = asyncio.run(
-            analyze(claim=claim, llm=llm, context=context)
+            analyze(
+                claim=claim, llm=llm, context=context,
+                prior_hypotheses=prior_hypotheses,
+                existing_hypotheses=existing_hypotheses,
+            )
         )
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}", style="bold red")
@@ -63,8 +76,9 @@ def test(
 
     # Persist to DB
     try:
-        store = _get_store()
-        store.save_hypothesis(
+        if store is None:
+            store = _get_store()
+        h = store.save_hypothesis(
             claim=claim,
             source="manual",
             context=context,
@@ -72,6 +86,15 @@ def test(
             tags=verdict.tags,
             source_ref=json.dumps(verdict.model_dump()),
         )
+        # Store embedding for future retrieval
+        try:
+            from forge.retrieve.embeddings import Embedder
+
+            embedder = Embedder()
+            vec = embedder.embed(claim)
+            store.update_hypothesis(h.id, embedding=vec.tobytes())
+        except Exception:
+            pass  # Embedding is optional
     except Exception as e:
         console.print(f"[yellow]Warning: could not persist result: {e}[/yellow]")
 
@@ -101,6 +124,17 @@ def _render_verdict(claim: str, verdict) -> None:
         panel_content += f"\n[bold]Tags:[/bold] {', '.join(verdict.tags)}"
 
     console.print(Panel(panel_content, title="[bold]FORGE Analysis[/bold]", subtitle=claim))
+
+
+def _retrieve_context(claim: str, store: Store) -> tuple[str | None, str | None]:
+    """Retrieve prior context for a claim if embeddings are available."""
+    from forge.retrieve.context import retrieve_prior_context
+    from forge.retrieve.embeddings import Embedder
+
+    embedder = Embedder()
+    claim_vec = embedder.embed(claim)
+    prior_text, existing_text = retrieve_prior_context(claim_vec, store, limit=3)
+    return prior_text or None, existing_text or None
 
 
 @app.command()
