@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+import httpx
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -136,3 +137,51 @@ def history(
         )
 
     console.print(table)
+
+
+def _check_llm_health() -> tuple[str, str | None]:
+    """Check llama.cpp health. Returns (status, model_name)."""
+    settings = Settings()
+    try:
+        resp = httpx.get(f"{settings.llama_url}/v1/models", timeout=5.0)
+        resp.raise_for_status()
+        data = resp.json()
+        models = data.get("data", [])
+        model_name = models[0]["id"] if models else "unknown"
+        return ("healthy", model_name)
+    except Exception:
+        return ("unreachable", None)
+
+
+@app.command()
+def status() -> None:
+    """Show system health and DB stats."""
+    from rich.table import Table
+
+    store = _get_store()
+
+    # DB stats
+    h_counts = store.count_hypotheses_by_status()
+    total_h = sum(h_counts.values())
+    e_count = store.count_evidence()
+    f_count = store.count_feedback()
+
+    console.print("[bold]Database[/bold]")
+    table = Table(show_header=False)
+    table.add_column("Metric", style="bold")
+    table.add_column("Value")
+    table.add_row("Hypotheses", str(total_h))
+    for s, c in sorted(h_counts.items()):
+        table.add_row(f"  {s}", str(c))
+    table.add_row("Evidence", str(e_count))
+    table.add_row("Feedback", str(f_count))
+    console.print(table)
+
+    # LLM health
+    console.print("\n[bold]LLM Backend[/bold]")
+    llm_status, model_name = _check_llm_health()
+    if llm_status == "healthy":
+        console.print("  Status: [green]healthy[/green]")
+        console.print(f"  Model: {model_name}")
+    else:
+        console.print("  Status: [red]unreachable[/red]")

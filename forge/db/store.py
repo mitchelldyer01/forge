@@ -218,3 +218,22 @@ class Store:
             id=f_id, hypothesis_id=hypothesis_id, prediction_id=prediction_id,
             action=action, note=note, created_at=now,
         )
+
+    # ------------------------------------------------------------------
+    # Stats
+    # ------------------------------------------------------------------
+
+    def count_hypotheses_by_status(self) -> dict[str, int]:
+        """Count hypotheses grouped by status."""
+        rows = self.conn.execute(
+            "SELECT status, COUNT(*) as cnt FROM hypotheses GROUP BY status"
+        ).fetchall()
+        return {row["status"]: row["cnt"] for row in rows}
+
+    def count_evidence(self) -> int:
+        row = self.conn.execute("SELECT COUNT(*) as cnt FROM evidence").fetchone()
+        return row["cnt"]
+
+    def count_feedback(self) -> int:
+        row = self.conn.execute("SELECT COUNT(*) as cnt FROM feedback").fetchone()
+        return row["cnt"]

@@ -125,3 +125,33 @@ class TestForgeHistory:
                 1 for i in range(5) if f"Hypothesis {i}" in result.output
             )
             assert hypothesis_count == 2
+
+
+class TestForgeStatus:
+    @pytest.mark.integration
+    def test_status_shows_db_stats(self) -> None:
+        with patch("forge.cli._get_store") as mock_store:
+            from forge.db.store import Store
+
+            store = Store(":memory:")
+            store.save_hypothesis(claim="Test", source="manual")
+            store.save_evidence(content="Some evidence")
+            store.save_feedback(action="endorse", hypothesis_id="h_fake")
+            mock_store.return_value = store
+
+            with patch("forge.cli._check_llm_health", return_value=("healthy", "qwen3")):
+                result = runner.invoke(app, ["status"])
+            assert result.exit_code == 0
+            assert "1" in result.output  # hypothesis count
+
+    @pytest.mark.integration
+    def test_status_llm_unreachable(self) -> None:
+        with patch("forge.cli._get_store") as mock_store:
+            from forge.db.store import Store
+
+            mock_store.return_value = Store(":memory:")
+
+            with patch("forge.cli._check_llm_health", return_value=("unreachable", None)):
+                result = runner.invoke(app, ["status"])
+            assert result.exit_code == 0
+            assert "unreachable" in result.output.lower()
