@@ -95,6 +95,13 @@ def test(
             store.update_hypothesis(h.id, embedding=vec.tobytes())
         except Exception:
             pass  # Embedding is optional
+        # Save relations extracted by the judge
+        try:
+            from forge.analyze.relations import save_verdict_relations
+
+            save_verdict_relations(h.id, verdict, store)
+        except Exception:
+            pass  # Relations are optional
     except Exception as e:
         console.print(f"[yellow]Warning: could not persist result: {e}[/yellow]")
 
