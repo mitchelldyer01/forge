@@ -287,3 +287,84 @@ class TestCalibrationScoring:
         assert snapshot.calibration_json is not None
         data = json.loads(snapshot.calibration_json)
         assert isinstance(data, list)  # List of bucket dicts
+
+
+# ------------------------------------------------------------------
+# Drift detection
+# ------------------------------------------------------------------
+
+
+def _make_dated_predictions(
+    db: Store,
+    simulation_id: str,
+    data: list[tuple[int, str, int]],
+) -> None:
+    """Helper: create predictions resolved N days ago.
+
+    data: list of (confidence, outcome, days_ago).
+    """
+    for confidence, outcome, days_ago in data:
+        p = db.save_prediction(
+            simulation_id=simulation_id,
+            claim=f"Prediction at {confidence}%",
+            confidence=confidence,
+        )
+        resolved_at = (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
+        db.update_prediction(p.id, resolved_as=outcome, resolved_at=resolved_at)
+
+
+@pytest.mark.unit
+class TestDriftDetection:
+    def test_detect_drift_no_data_returns_empty(self, db: Store) -> None:
+        from forge.calibrate.drift import detect_drift
+
+        alerts = detect_drift(db)
+        assert alerts == []
+
+    def test_detect_drift_stable_returns_empty(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        from forge.calibrate.drift import detect_drift
+
+        # Create good predictions in both windows
+        _make_dated_predictions(db, sample_simulation.id, [
+            (80, "true", 5), (80, "true", 10), (80, "true", 15),
+            (80, "true", 35), (80, "true", 40), (80, "true", 45),
+        ])
+
+        alerts = detect_drift(db, window_days=30)
+        assert alerts == []
+
+    def test_detect_drift_brier_degradation(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        from forge.calibrate.drift import detect_drift
+
+        # Prior window: good predictions (Brier ~0)
+        _make_dated_predictions(db, sample_simulation.id, [
+            (90, "true", 40), (90, "true", 45), (90, "true", 50),
+            (10, "false", 40), (10, "false", 45),
+        ])
+        # Current window: bad predictions (Brier ~1)
+        _make_dated_predictions(db, sample_simulation.id, [
+            (90, "false", 5), (90, "false", 10), (90, "false", 15),
+            (10, "true", 5), (10, "true", 10),
+        ])
+
+        alerts = detect_drift(db, window_days=30)
+        brier_alerts = [a for a in alerts if a.alert_type == "brier_degradation"]
+        assert len(brier_alerts) >= 1
+
+    def test_detect_drift_insufficient_data_no_alerts(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        from forge.calibrate.drift import detect_drift
+
+        # Only 1 prediction in each window — insufficient
+        _make_dated_predictions(db, sample_simulation.id, [
+            (80, "true", 5),
+            (80, "true", 40),
+        ])
+
+        alerts = detect_drift(db, window_days=30)
+        assert alerts == []
