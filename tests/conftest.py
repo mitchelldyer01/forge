@@ -15,7 +15,15 @@ from forge.db.store import Store
 from forge.llm.client import MockLLMClient
 
 if TYPE_CHECKING:
-    from forge.db.models import AgentPersona, Evidence, Hypothesis, Simulation
+    from forge.db.models import (
+        AgentPersona,
+        Article,
+        Evidence,
+        Feed,
+        Hypothesis,
+        Prediction,
+        Simulation,
+    )
     from forge.swarm.population import SeedMaterial
 
 
@@ -97,4 +105,38 @@ def sample_seed() -> SeedMaterial:
     return SeedMaterial(
         text="The EU announces strict AI agent regulations",
         context="European Commission proposal for AI Act extension",
+    )
+
+
+@pytest.fixture
+def sample_feed(db: Store) -> Feed:
+    """A pre-built Feed model for reuse."""
+    return db.save_feed(
+        name="TechCrunch",
+        url="https://techcrunch.com/feed/",
+        poll_interval_minutes=240,
+    )
+
+
+@pytest.fixture
+def sample_article(db: Store, sample_feed: Feed) -> Article:
+    """A pre-built Article model for reuse."""
+    return db.save_article(
+        url="https://techcrunch.com/2024/01/15/ai-agents",
+        feed_id=sample_feed.id,
+        title="AI Agents Are Reshaping Enterprise Software",
+        content="The rise of AI agents is fundamentally changing how enterprises build software.",
+    )
+
+
+@pytest.fixture
+def sample_prediction(db: Store, sample_simulation: Simulation) -> Prediction:
+    """A pre-built Prediction model with resolution deadline for reuse."""
+    return db.save_prediction(
+        simulation_id=sample_simulation.id,
+        claim="AI agent adoption will exceed 50% in enterprise by 2026",
+        confidence=72,
+        consensus_strength=0.8,
+        dissent_summary="Some argue enterprises are too slow to adopt",
+        resolution_deadline="2026-12-31T00:00:00+00:00",
     )

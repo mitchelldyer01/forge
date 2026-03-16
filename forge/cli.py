@@ -21,6 +21,8 @@ app = typer.Typer(
     help="FORGE — Calibrated Prediction Engine",
     invoke_without_command=True,
 )
+feed_app = typer.Typer(help="Manage RSS feeds")
+app.add_typer(feed_app, name="feed")
 console = Console()
 
 
@@ -416,3 +418,84 @@ def _render_simulation(result: dict) -> None:
         console.print(table)
     else:
         console.print("[dim]No predictions extracted.[/dim]")
+
+
+# ------------------------------------------------------------------
+# Feed management commands
+# ------------------------------------------------------------------
+
+
+@feed_app.command("add")
+def feed_add(
+    url: str = typer.Argument(help="RSS feed URL"),
+    name: str | None = typer.Option(None, "--name", "-n", help="Feed name"),
+    interval: int = typer.Option(240, "--interval", "-i", help="Poll interval (minutes)"),
+) -> None:
+    """Add an RSS feed to watch."""
+    store = _get_store()
+    feed_name = name or url.split("/")[2]  # domain as default name
+    feed = store.save_feed(name=feed_name, url=url, poll_interval_minutes=interval)
+    console.print(f"Added feed [bold]{feed.name}[/bold] ({feed.id})")
+
+
+@feed_app.command("list")
+def feed_list(
+    active_only: bool = typer.Option(False, "--active", "-a", help="Show only active feeds"),
+) -> None:
+    """List all RSS feeds."""
+    from rich.table import Table
+
+    store = _get_store()
+    feeds = store.list_feeds(active=True if active_only else None)
+
+    if not feeds:
+        console.print("No feeds configured.")
+        return
+
+    table = Table(title="Feeds")
+    table.add_column("ID", style="dim", max_width=12)
+    table.add_column("Name")
+    table.add_column("URL", max_width=50)
+    table.add_column("Active")
+    table.add_column("Last Polled", style="dim")
+
+    for f in feeds:
+        table.add_row(
+            f.id[:12],
+            f.name,
+            f.url[:47] + "..." if len(f.url) > 50 else f.url,
+            "[green]yes[/green]" if f.active else "[red]no[/red]",
+            f.last_polled_at[:16] if f.last_polled_at else "never",
+        )
+    console.print(table)
+
+
+@feed_app.command("remove")
+def feed_remove(
+    feed_id: str = typer.Argument(help="Feed ID to deactivate"),
+) -> None:
+    """Deactivate an RSS feed."""
+    store = _get_store()
+    result = store.update_feed(feed_id, active=0)
+    if result is None:
+        console.print(f"Feed [bold]{feed_id}[/bold] not found.")
+        raise typer.Exit(code=1)
+    console.print(f"Deactivated feed [bold]{result.name}[/bold]")
+
+
+@feed_app.command("poll")
+def feed_poll() -> None:
+    """Poll all active feeds for new articles."""
+    from forge.ingest.rss import poll_all_feeds
+
+    store = _get_store()
+    results = poll_all_feeds(store)
+
+    if not results:
+        console.print("No feeds due for polling.")
+        return
+
+    total = sum(results.values())
+    console.print(f"Polled {len(results)} feed(s), found {total} new article(s).")
+    for url, count in results.items():
+        console.print(f"  {url}: {count} new")
