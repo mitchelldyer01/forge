@@ -21,6 +21,8 @@ app = typer.Typer(
     help="FORGE — Calibrated Prediction Engine",
     invoke_without_command=True,
 )
+feed_app = typer.Typer(help="Manage RSS feeds")
+app.add_typer(feed_app, name="feed")
 console = Console()
 
 
@@ -416,3 +418,243 @@ def _render_simulation(result: dict) -> None:
         console.print(table)
     else:
         console.print("[dim]No predictions extracted.[/dim]")
+
+
+# ------------------------------------------------------------------
+# Feed management commands
+# ------------------------------------------------------------------
+
+
+@feed_app.command("add")
+def feed_add(
+    url: str = typer.Argument(help="RSS feed URL"),
+    name: str | None = typer.Option(None, "--name", "-n", help="Feed name"),
+    interval: int = typer.Option(240, "--interval", "-i", help="Poll interval (minutes)"),
+) -> None:
+    """Add an RSS feed to watch."""
+    store = _get_store()
+    feed_name = name or url.split("/")[2]  # domain as default name
+    feed = store.save_feed(name=feed_name, url=url, poll_interval_minutes=interval)
+    console.print(f"Added feed [bold]{feed.name}[/bold] ({feed.id})")
+
+
+@feed_app.command("list")
+def feed_list(
+    active_only: bool = typer.Option(False, "--active", "-a", help="Show only active feeds"),
+) -> None:
+    """List all RSS feeds."""
+    from rich.table import Table
+
+    store = _get_store()
+    feeds = store.list_feeds(active=True if active_only else None)
+
+    if not feeds:
+        console.print("No feeds configured.")
+        return
+
+    table = Table(title="Feeds")
+    table.add_column("ID", style="dim", max_width=12)
+    table.add_column("Name")
+    table.add_column("URL", max_width=50)
+    table.add_column("Active")
+    table.add_column("Last Polled", style="dim")
+
+    for f in feeds:
+        table.add_row(
+            f.id[:12],
+            f.name,
+            f.url[:47] + "..." if len(f.url) > 50 else f.url,
+            "[green]yes[/green]" if f.active else "[red]no[/red]",
+            f.last_polled_at[:16] if f.last_polled_at else "never",
+        )
+    console.print(table)
+
+
+@feed_app.command("remove")
+def feed_remove(
+    feed_id: str = typer.Argument(help="Feed ID to deactivate"),
+) -> None:
+    """Deactivate an RSS feed."""
+    store = _get_store()
+    result = store.update_feed(feed_id, active=0)
+    if result is None:
+        console.print(f"Feed [bold]{feed_id}[/bold] not found.")
+        raise typer.Exit(code=1)
+    console.print(f"Deactivated feed [bold]{result.name}[/bold]")
+
+
+@feed_app.command("poll")
+def feed_poll() -> None:
+    """Poll all active feeds for new articles."""
+    from forge.ingest.rss import poll_all_feeds
+
+    store = _get_store()
+    results = poll_all_feeds(store)
+
+    if not results:
+        console.print("No feeds due for polling.")
+        return
+
+    total = sum(results.values())
+    console.print(f"Polled {len(results)} feed(s), found {total} new article(s).")
+    for url, count in results.items():
+        console.print(f"  {url}: {count} new")
+
+
+# ------------------------------------------------------------------
+# Resolution + predictions commands
+# ------------------------------------------------------------------
+
+
+@app.command()
+def resolve(
+    prediction_id: str = typer.Argument(help="Prediction ID (p_...)"),
+    true: bool = typer.Option(False, "--true", help="Resolve as true"),
+    false_: bool = typer.Option(False, "--false", help="Resolve as false"),
+    partial: bool = typer.Option(False, "--partial", help="Resolve as partial"),
+    note: str | None = typer.Option(None, "--note", "-n", help="Resolution note"),
+) -> None:
+    """Resolve a prediction as true, false, or partial."""
+    from forge.calibrate.resolver import resolve_prediction
+
+    outcome_map = {"true": true, "false": false_, "partial": partial}
+    selected = [k for k, v in outcome_map.items() if v]
+
+    if len(selected) != 1:
+        console.print("[red]Specify exactly one of --true, --false, or --partial[/red]")
+        raise typer.Exit(code=1)
+
+    store = _get_store()
+    try:
+        resolve_prediction(store, prediction_id, selected[0], note=note)
+        console.print(
+            f"Resolved [bold]{prediction_id}[/bold] as "
+            f"[{'green' if selected[0] == 'true' else 'red'}]{selected[0]}[/]"
+        )
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+
+@app.command()
+def predictions(
+    pending: bool = typer.Option(False, "--pending", help="Show pending only"),
+    resolved: bool = typer.Option(False, "--resolved", help="Show resolved only"),
+    overdue: bool = typer.Option(False, "--overdue", help="Show overdue only"),
+) -> None:
+    """List predictions with their resolution status."""
+    from rich.table import Table
+
+    store = _get_store()
+
+    if overdue:
+        preds = store.list_predictions_past_deadline()
+    elif resolved:
+        preds = store.list_resolved_predictions()
+    elif pending:
+        preds = store.list_predictions_pending()
+    else:
+        preds = store.list_predictions()
+
+    if not preds:
+        console.print("No predictions found.")
+        return
+
+    table = Table(title="Predictions")
+    table.add_column("ID", style="dim", max_width=12)
+    table.add_column("Claim", max_width=50)
+    table.add_column("Conf", justify="right")
+    table.add_column("Status")
+    table.add_column("Deadline", style="dim")
+
+    for p in preds:
+        status = p.resolved_as or "pending"
+        color = {"true": "green", "false": "red", "partial": "yellow"}.get(status, "dim")
+        table.add_row(
+            p.id[:12],
+            p.claim[:47] + "..." if len(p.claim) > 50 else p.claim,
+            str(p.confidence),
+            f"[{color}]{status}[/{color}]",
+            p.resolution_deadline[:10] if p.resolution_deadline else "-",
+        )
+    console.print(table)
+
+
+# ------------------------------------------------------------------
+# Calibration command
+# ------------------------------------------------------------------
+
+
+@app.command()
+def calibration() -> None:
+    """Show calibration report: accuracy, Brier score, bucket breakdown."""
+    from rich.table import Table
+
+    from forge.calibrate.scorer import compute_calibration
+
+    store = _get_store()
+    resolved = store.list_resolved_predictions()
+
+    if not resolved:
+        console.print("No resolved predictions yet. Use `forge resolve` to resolve predictions.")
+        return
+
+    report = compute_calibration(resolved)
+
+    console.print("\n[bold]Calibration Report[/bold]")
+    console.print(f"  Total predictions: {report['total']}")
+    console.print(f"  Resolved: {report['resolved']}")
+    console.print(f"  Accuracy: {report['accuracy']:.1%}")
+    console.print(f"  Brier score: {report['brier_score']:.4f}")
+
+    if report["buckets"]:
+        table = Table(title="Calibration Buckets")
+        table.add_column("Confidence", justify="center")
+        table.add_column("Total", justify="right")
+        table.add_column("Correct", justify="right")
+        table.add_column("Accuracy", justify="right")
+
+        for b in report["buckets"]:
+            table.add_row(
+                b["bucket"],
+                str(b["total"]),
+                str(b["correct"]),
+                f"{b['accuracy']:.0%}",
+            )
+        console.print(table)
+
+
+# ------------------------------------------------------------------
+# Pipeline commands
+# ------------------------------------------------------------------
+
+
+@app.command()
+def run(
+    once: bool = typer.Option(False, "--once", help="Run a single pipeline cycle"),
+) -> None:
+    """Run the ingestion pipeline (continuous or single cycle)."""
+    from forge.pipeline.runner import run_pipeline_once
+    from forge.pipeline.scheduler import run_scheduled
+
+    settings = Settings()
+    store = _get_store()
+    llm = _get_llm()
+
+    if once:
+        result = asyncio.run(run_pipeline_once(store, llm))
+        ingestion = result["ingestion"]
+        console.print(
+            f"Fetched {ingestion['articles_fetched']} article(s), "
+            f"extracted {ingestion['claims_extracted']} claim(s), "
+            f"{result['overdue_predictions']} overdue prediction(s)."
+        )
+    else:
+        console.print(
+            f"Starting continuous pipeline (interval: {settings.poll_interval_minutes}m). "
+            "Press Ctrl+C to stop."
+        )
+        try:
+            asyncio.run(run_scheduled(store, llm, settings.poll_interval_minutes))
+        except KeyboardInterrupt:
+            console.print("\nPipeline stopped.")

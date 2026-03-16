@@ -155,15 +155,15 @@ Target: average >= 3.5, at least 3 scores of 4+. See Step 6 below.
 - [x] P2.7: Upgrade path: flag high-confidence claims for swarm (no scheduler)
 - [x] P2.8: Coverage >= 85% on new code (achieved 91% on swarm, 93% overall, 211 tests)
 
-## Phase 3: Continuous Ingestion + Calibration
-- [ ] P3.1: RSS feed polling + article storage
-- [ ] P3.2: Claim extraction from articles
-- [ ] P3.3: Relevance filtering against existing graph
-- [ ] P3.4: Pipeline runner (cron-like scheduling)
-- [ ] P3.5: Resolution tracking (manual + automated)
-- [ ] P3.6: Calibration scoring (Brier score, per-topic, per-archetype)
-- [ ] P3.7: Drift detection
-- [ ] P3.8: Coverage >= 85% on new code
+## Phase 3: Continuous Ingestion + Calibration [COMPLETE]
+- [x] P3.1: RSS feed polling + article storage
+- [x] P3.2: Claim extraction from articles
+- [x] P3.3: Relevance filtering against existing graph
+- [x] P3.4: Pipeline runner (cron-like scheduling)
+- [x] P3.5: Resolution tracking (manual + automated)
+- [x] P3.6: Calibration scoring (Brier score, per-topic, per-archetype)
+- [x] P3.7: Drift detection
+- [x] P3.8: Coverage >= 85% on new code (achieved 93% on Phase 3 code, 87% overall, 287 tests)
 
 ## Phase 4: Evolution & Output
 - [ ] P4.1: Hypothesis selection (cull/promote/fork)

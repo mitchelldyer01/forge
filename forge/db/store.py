@@ -10,7 +10,10 @@ from ulid import ULID
 
 from forge.db.models import (
     AgentPersona,
+    Article,
+    CalibrationSnapshot,
     Evidence,
+    Feed,
     Feedback,
     Hypothesis,
     Prediction,
@@ -499,3 +502,211 @@ class Store:
     def count_feedback(self) -> int:
         row = self.conn.execute("SELECT COUNT(*) as cnt FROM feedback").fetchone()
         return row["cnt"]
+
+    # ------------------------------------------------------------------
+    # Feed
+    # ------------------------------------------------------------------
+
+    def save_feed(
+        self,
+        name: str,
+        url: str,
+        *,
+        feed_type: str = "rss",
+        poll_interval_minutes: int = 240,
+    ) -> Feed:
+        if not name:
+            raise ValueError("name must not be empty")
+        if not url:
+            raise ValueError("url must not be empty")
+
+        f_id = _gen_id("f_")
+        self.conn.execute(
+            """INSERT INTO feeds
+               (id, name, url, feed_type, active, poll_interval_minutes)
+               VALUES (?, ?, ?, ?, 1, ?)""",
+            (f_id, name, url, feed_type, poll_interval_minutes),
+        )
+        self.conn.commit()
+        return self.get_feed(f_id)  # type: ignore[return-value]
+
+    def get_feed(self, feed_id: str) -> Feed | None:
+        row = self.conn.execute(
+            "SELECT * FROM feeds WHERE id = ?", (feed_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return Feed(**dict(row))
+
+    def list_feeds(self, *, active: bool | None = None) -> list[Feed]:
+        query = "SELECT * FROM feeds WHERE 1=1"
+        params: list[object] = []
+        if active is not None:
+            query += " AND active = ?"
+            params.append(1 if active else 0)
+        rows = self.conn.execute(query, params).fetchall()
+        return [Feed(**dict(r)) for r in rows]
+
+    def update_feed(self, feed_id: str, **kwargs: object) -> Feed | None:
+        existing = self.get_feed(feed_id)
+        if existing is None:
+            return None
+        set_clause = ", ".join(f"{k} = ?" for k in kwargs)
+        values = list(kwargs.values()) + [feed_id]
+        self.conn.execute(
+            f"UPDATE feeds SET {set_clause} WHERE id = ?",  # noqa: S608
+            values,
+        )
+        self.conn.commit()
+        return self.get_feed(feed_id)
+
+    # ------------------------------------------------------------------
+    # Article
+    # ------------------------------------------------------------------
+
+    def save_article(
+        self,
+        url: str | None = None,
+        *,
+        feed_id: str | None = None,
+        title: str | None = None,
+        content: str | None = None,
+        published_at: str | None = None,
+    ) -> Article:
+        a_id = _gen_id("a_")
+        now = _now()
+        self.conn.execute(
+            """INSERT INTO articles
+               (id, feed_id, url, title, content, published_at, ingested_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (a_id, feed_id, url, title, content, published_at, now),
+        )
+        self.conn.commit()
+        return self.get_article(a_id)  # type: ignore[return-value]
+
+    def get_article(self, article_id: str) -> Article | None:
+        row = self.conn.execute(
+            "SELECT * FROM articles WHERE id = ?", (article_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return Article(**dict(row))
+
+    def get_article_by_url(self, url: str) -> Article | None:
+        row = self.conn.execute(
+            "SELECT * FROM articles WHERE url = ?", (url,)
+        ).fetchone()
+        if row is None:
+            return None
+        return Article(**dict(row))
+
+    def list_articles(
+        self,
+        *,
+        feed_id: str | None = None,
+        unextracted: bool = False,
+    ) -> list[Article]:
+        query = "SELECT * FROM articles WHERE 1=1"
+        params: list[object] = []
+        if feed_id is not None:
+            query += " AND feed_id = ?"
+            params.append(feed_id)
+        if unextracted:
+            query += " AND claims_extracted = 0"
+        query += " ORDER BY ingested_at DESC"
+        rows = self.conn.execute(query, params).fetchall()
+        return [Article(**dict(r)) for r in rows]
+
+    def update_article(self, article_id: str, **kwargs: object) -> Article | None:
+        existing = self.get_article(article_id)
+        if existing is None:
+            return None
+        set_clause = ", ".join(f"{k} = ?" for k in kwargs)
+        values = list(kwargs.values()) + [article_id]
+        self.conn.execute(
+            f"UPDATE articles SET {set_clause} WHERE id = ?",  # noqa: S608
+            values,
+        )
+        self.conn.commit()
+        return self.get_article(article_id)
+
+    # ------------------------------------------------------------------
+    # CalibrationSnapshot
+    # ------------------------------------------------------------------
+
+    def save_calibration_snapshot(
+        self,
+        *,
+        total_predictions: int = 0,
+        resolved_predictions: int = 0,
+        accuracy_overall: float | None = None,
+        calibration_json: str | None = None,
+        topic_breakdown_json: str | None = None,
+        archetype_breakdown_json: str | None = None,
+    ) -> CalibrationSnapshot:
+        cs_id = _gen_id("cs_")
+        now = _now()
+        self.conn.execute(
+            """INSERT INTO calibration_snapshots
+               (id, computed_at, total_predictions, resolved_predictions,
+                accuracy_overall, calibration_json, topic_breakdown_json,
+                archetype_breakdown_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (cs_id, now, total_predictions, resolved_predictions,
+             accuracy_overall, calibration_json, topic_breakdown_json,
+             archetype_breakdown_json),
+        )
+        self.conn.commit()
+        row = self.conn.execute(
+            "SELECT * FROM calibration_snapshots WHERE id = ?", (cs_id,)
+        ).fetchone()
+        return CalibrationSnapshot(**dict(row))
+
+    def get_latest_calibration_snapshot(self) -> CalibrationSnapshot | None:
+        row = self.conn.execute(
+            "SELECT * FROM calibration_snapshots ORDER BY computed_at DESC LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return CalibrationSnapshot(**dict(row))
+
+    def list_calibration_snapshots(self) -> list[CalibrationSnapshot]:
+        rows = self.conn.execute(
+            "SELECT * FROM calibration_snapshots ORDER BY computed_at DESC"
+        ).fetchall()
+        return [CalibrationSnapshot(**dict(r)) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Prediction queries (Phase 3 additions)
+    # ------------------------------------------------------------------
+
+    def list_predictions_past_deadline(self) -> list[Prediction]:
+        """Predictions past deadline that haven't been resolved."""
+        now = _now()
+        rows = self.conn.execute(
+            """SELECT * FROM predictions
+               WHERE resolution_deadline IS NOT NULL
+               AND resolution_deadline < ?
+               AND resolved_as IS NULL
+               ORDER BY resolution_deadline""",
+            (now,),
+        ).fetchall()
+        return [Prediction(**dict(r)) for r in rows]
+
+    def list_predictions_pending(self) -> list[Prediction]:
+        """Predictions that haven't been resolved yet."""
+        rows = self.conn.execute(
+            """SELECT * FROM predictions
+               WHERE resolved_as IS NULL
+               ORDER BY created_at DESC"""
+        ).fetchall()
+        return [Prediction(**dict(r)) for r in rows]
+
+    def list_resolved_predictions(self) -> list[Prediction]:
+        """Predictions that have been resolved."""
+        rows = self.conn.execute(
+            """SELECT * FROM predictions
+               WHERE resolved_as IS NOT NULL
+               ORDER BY resolved_at DESC"""
+        ).fetchall()
+        return [Prediction(**dict(r)) for r in rows]
