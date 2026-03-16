@@ -165,15 +165,15 @@ Target: average >= 3.5, at least 3 scores of 4+. See Step 6 below.
 - [x] P3.7: Drift detection
 - [x] P3.8: Coverage >= 85% on new code (achieved 93% on Phase 3 code, 87% overall, 287 tests)
 
-## Phase 4: Evolution & Output
-- [ ] P4.1: Hypothesis selection (cull/promote/fork)
-- [ ] P4.2: Agent population evolution
-- [ ] P4.3: Obsidian export
-- [ ] P4.4: Daily digest generation
-- [ ] P4.5: Human feedback loop (endorse/reject/resolve)
-- [ ] P4.6: FastAPI server
-- [ ] P4.7: Track record page
-- [ ] P4.8: Coverage >= 85% on new code
+## Phase 4: Evolution & Output [COMPLETE]
+- [x] P4.1: Hypothesis selection (cull/promote/fork)
+- [x] P4.2: Agent population evolution
+- [x] P4.3: Obsidian export
+- [x] P4.4: Daily digest generation
+- [x] P4.5: Human feedback loop (endorse/reject/resolve)
+- [x] P4.6: FastAPI server
+- [x] P4.7: Track record page
+- [x] P4.8: Coverage >= 85% on new code (achieved 94% on Phase 4 code, 89% overall, 366 tests)
 
 ## Phase 5: Hardening
 - [ ] P5.1: Dual model routing

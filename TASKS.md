@@ -97,3 +97,29 @@
 
 ### P3.8: Coverage + Cleanup
 **Status:** COMPLETE — 87% coverage overall, 93% on Phase 3 code, 287 tests
+
+## Phase 4: Evolution & Output
+
+### P4.1: Hypothesis Selection (cull/promote/fork)
+**Status:** COMPLETE
+
+### P4.2: Agent Population Evolution
+**Status:** COMPLETE
+
+### P4.3: Obsidian Export
+**Status:** COMPLETE
+
+### P4.4: Daily Digest Generation
+**Status:** COMPLETE
+
+### P4.5: Human Feedback Loop (endorse/reject CLI + brief/leaderboard/evolve/export)
+**Status:** COMPLETE
+
+### P4.6: FastAPI Server
+**Status:** COMPLETE
+
+### P4.7: Track Record Page
+**Status:** COMPLETE
+
+### P4.8: Coverage + Cleanup
+**Status:** COMPLETE — 89% coverage overall, 94% on Phase 4 code, 366 tests
