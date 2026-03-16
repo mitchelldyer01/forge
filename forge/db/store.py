@@ -37,9 +37,9 @@ def _gen_id(prefix: str) -> str:
 class Store:
     """SQLite-backed store for all FORGE domain objects."""
 
-    def __init__(self, db_path: str) -> None:
+    def __init__(self, db_path: str, *, check_same_thread: bool = True) -> None:
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path)
+        self.conn = sqlite3.connect(db_path, check_same_thread=check_same_thread)
         self.conn.row_factory = sqlite3.Row
         if db_path != ":memory:":
             self.conn.execute("PRAGMA journal_mode=WAL")
