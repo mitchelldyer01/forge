@@ -1,0 +1,150 @@
+"""Tests for calibration: resolution tracking, scoring, drift detection."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
+
+import pytest
+
+if TYPE_CHECKING:
+    from forge.db.models import Prediction, Simulation
+    from forge.db.store import Store
+
+
+# ------------------------------------------------------------------
+# Resolution tracking
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestResolutionTracking:
+    def test_resolve_prediction_as_true(
+        self, db: Store, sample_prediction: Prediction,
+    ) -> None:
+        from forge.calibrate.resolver import resolve_prediction
+
+        result = resolve_prediction(
+            db, sample_prediction.id, "true", note="Confirmed by data",
+        )
+        assert result.resolved_as == "true"
+        assert result.resolved_at is not None
+        assert result.resolution_evidence is None
+
+    def test_resolve_prediction_as_false(
+        self, db: Store, sample_prediction: Prediction,
+    ) -> None:
+        from forge.calibrate.resolver import resolve_prediction
+
+        result = resolve_prediction(
+            db, sample_prediction.id, "false",
+            evidence="Counter-evidence found",
+        )
+        assert result.resolved_as == "false"
+        assert result.resolution_evidence == "Counter-evidence found"
+
+    def test_resolve_prediction_as_partial(
+        self, db: Store, sample_prediction: Prediction,
+    ) -> None:
+        from forge.calibrate.resolver import resolve_prediction
+
+        result = resolve_prediction(db, sample_prediction.id, "partial")
+        assert result.resolved_as == "partial"
+
+    def test_resolve_prediction_saves_feedback(
+        self, db: Store, sample_prediction: Prediction,
+    ) -> None:
+        from forge.calibrate.resolver import resolve_prediction
+
+        resolve_prediction(db, sample_prediction.id, "true", note="Verified")
+        feedback_count = db.count_feedback()
+        assert feedback_count >= 1
+
+    def test_resolve_prediction_invalid_outcome_raises(
+        self, db: Store, sample_prediction: Prediction,
+    ) -> None:
+        from forge.calibrate.resolver import resolve_prediction
+
+        with pytest.raises(ValueError, match="Invalid outcome"):
+            resolve_prediction(db, sample_prediction.id, "maybe")
+
+    def test_resolve_prediction_not_found_raises(self, db: Store) -> None:
+        from forge.calibrate.resolver import resolve_prediction
+
+        with pytest.raises(ValueError, match="not found"):
+            resolve_prediction(db, "p_nonexistent", "true")
+
+    def test_check_overdue_predictions_returns_past_deadline(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        from forge.calibrate.resolver import check_overdue_predictions
+
+        past = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+        db.save_prediction(
+            simulation_id=sample_simulation.id,
+            claim="Past deadline prediction",
+            confidence=60,
+            resolution_deadline=past,
+        )
+
+        overdue = check_overdue_predictions(db)
+        assert len(overdue) == 1
+        assert overdue[0].claim == "Past deadline prediction"
+
+    def test_check_overdue_skips_no_deadline(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        from forge.calibrate.resolver import check_overdue_predictions
+
+        db.save_prediction(
+            simulation_id=sample_simulation.id,
+            claim="No deadline",
+            confidence=50,
+        )
+
+        overdue = check_overdue_predictions(db)
+        assert len(overdue) == 0
+
+    def test_check_overdue_skips_already_resolved(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        from forge.calibrate.resolver import check_overdue_predictions, resolve_prediction
+
+        past = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+        p = db.save_prediction(
+            simulation_id=sample_simulation.id,
+            claim="Already resolved",
+            confidence=60,
+            resolution_deadline=past,
+        )
+        resolve_prediction(db, p.id, "true")
+
+        overdue = check_overdue_predictions(db)
+        assert len(overdue) == 0
+
+    def test_store_list_predictions_pending(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        p1 = db.save_prediction(
+            simulation_id=sample_simulation.id, claim="Pending", confidence=50,
+        )
+        p2 = db.save_prediction(
+            simulation_id=sample_simulation.id, claim="Resolved", confidence=50,
+        )
+        db.update_prediction(p2.id, resolved_as="true", resolved_at=datetime.now(UTC).isoformat())
+
+        pending = db.list_predictions_pending()
+        assert len(pending) == 1
+        assert pending[0].id == p1.id
+
+    def test_store_list_resolved_predictions(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        p = db.save_prediction(
+            simulation_id=sample_simulation.id, claim="Resolved", confidence=50,
+        )
+        db.update_prediction(p.id, resolved_as="false", resolved_at=datetime.now(UTC).isoformat())
+
+        resolved = db.list_resolved_predictions()
+        assert len(resolved) == 1
+        assert resolved[0].resolved_as == "false"

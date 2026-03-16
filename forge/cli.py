@@ -499,3 +499,82 @@ def feed_poll() -> None:
     console.print(f"Polled {len(results)} feed(s), found {total} new article(s).")
     for url, count in results.items():
         console.print(f"  {url}: {count} new")
+
+
+# ------------------------------------------------------------------
+# Resolution + predictions commands
+# ------------------------------------------------------------------
+
+
+@app.command()
+def resolve(
+    prediction_id: str = typer.Argument(help="Prediction ID (p_...)"),
+    true: bool = typer.Option(False, "--true", help="Resolve as true"),
+    false_: bool = typer.Option(False, "--false", help="Resolve as false"),
+    partial: bool = typer.Option(False, "--partial", help="Resolve as partial"),
+    note: str | None = typer.Option(None, "--note", "-n", help="Resolution note"),
+) -> None:
+    """Resolve a prediction as true, false, or partial."""
+    from forge.calibrate.resolver import resolve_prediction
+
+    outcome_map = {"true": true, "false": false_, "partial": partial}
+    selected = [k for k, v in outcome_map.items() if v]
+
+    if len(selected) != 1:
+        console.print("[red]Specify exactly one of --true, --false, or --partial[/red]")
+        raise typer.Exit(code=1)
+
+    store = _get_store()
+    try:
+        resolve_prediction(store, prediction_id, selected[0], note=note)
+        console.print(
+            f"Resolved [bold]{prediction_id}[/bold] as "
+            f"[{'green' if selected[0] == 'true' else 'red'}]{selected[0]}[/]"
+        )
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1) from e
+
+
+@app.command()
+def predictions(
+    pending: bool = typer.Option(False, "--pending", help="Show pending only"),
+    resolved: bool = typer.Option(False, "--resolved", help="Show resolved only"),
+    overdue: bool = typer.Option(False, "--overdue", help="Show overdue only"),
+) -> None:
+    """List predictions with their resolution status."""
+    from rich.table import Table
+
+    store = _get_store()
+
+    if overdue:
+        preds = store.list_predictions_past_deadline()
+    elif resolved:
+        preds = store.list_resolved_predictions()
+    elif pending:
+        preds = store.list_predictions_pending()
+    else:
+        preds = store.list_predictions()
+
+    if not preds:
+        console.print("No predictions found.")
+        return
+
+    table = Table(title="Predictions")
+    table.add_column("ID", style="dim", max_width=12)
+    table.add_column("Claim", max_width=50)
+    table.add_column("Conf", justify="right")
+    table.add_column("Status")
+    table.add_column("Deadline", style="dim")
+
+    for p in preds:
+        status = p.resolved_as or "pending"
+        color = {"true": "green", "false": "red", "partial": "yellow"}.get(status, "dim")
+        table.add_row(
+            p.id[:12],
+            p.claim[:47] + "..." if len(p.claim) > 50 else p.claim,
+            str(p.confidence),
+            f"[{color}]{status}[/{color}]",
+            p.resolution_deadline[:10] if p.resolution_deadline else "-",
+        )
+    console.print(table)
