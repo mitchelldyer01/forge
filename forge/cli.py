@@ -658,3 +658,139 @@ def run(
             asyncio.run(run_scheduled(store, llm, settings.poll_interval_minutes))
         except KeyboardInterrupt:
             console.print("\nPipeline stopped.")
+
+
+# ------------------------------------------------------------------
+# Phase 4: Feedback commands
+# ------------------------------------------------------------------
+
+
+@app.command()
+def endorse(
+    hypothesis_id: str = typer.Argument(help="Hypothesis ID (h_...)"),
+    note: str | None = typer.Option(None, "--note", "-n", help="Optional note"),
+) -> None:
+    """Endorse a hypothesis (increases human_endorsed count)."""
+    store = _get_store()
+    h = store.get_hypothesis(hypothesis_id)
+    if h is None:
+        console.print(f"[red]Hypothesis {hypothesis_id} not found.[/red]")
+        raise typer.Exit(code=1)
+
+    store.update_hypothesis(h.id, human_endorsed=h.human_endorsed + 1)
+    store.save_feedback("endorse", hypothesis_id=h.id, note=note)
+    console.print(
+        f"Endorsed [bold]{h.id}[/bold] "
+        f"(endorsed: {h.human_endorsed + 1})"
+    )
+
+
+@app.command()
+def reject(
+    hypothesis_id: str = typer.Argument(help="Hypothesis ID (h_...)"),
+    note: str | None = typer.Option(None, "--note", "-n", help="Optional note"),
+) -> None:
+    """Reject a hypothesis (increases human_rejected count)."""
+    store = _get_store()
+    h = store.get_hypothesis(hypothesis_id)
+    if h is None:
+        console.print(f"[red]Hypothesis {hypothesis_id} not found.[/red]")
+        raise typer.Exit(code=1)
+
+    store.update_hypothesis(h.id, human_rejected=h.human_rejected + 1)
+    store.save_feedback("reject", hypothesis_id=h.id, note=note)
+    console.print(
+        f"Rejected [bold]{h.id}[/bold] "
+        f"(rejected: {h.human_rejected + 1})"
+    )
+
+
+# ------------------------------------------------------------------
+# Phase 4: Digest, leaderboard, evolve, export
+# ------------------------------------------------------------------
+
+
+@app.command()
+def brief() -> None:
+    """Generate and display today's daily digest."""
+    from forge.export.digest import generate_digest
+
+    store = _get_store()
+    digest = generate_digest(store)
+    console.print(digest.to_markdown())
+
+
+@app.command()
+def leaderboard(
+    limit: int = typer.Option(10, "--limit", "-n", help="Max agents to show"),
+) -> None:
+    """Show top-performing agent archetypes."""
+    from rich.table import Table
+
+    from forge.evolve.agent_evolution import get_leaderboard
+
+    store = _get_store()
+    leaders = get_leaderboard(store, limit=limit)
+
+    if not leaders:
+        console.print("No scored agents yet.")
+        return
+
+    table = Table(title="Agent Leaderboard")
+    table.add_column("#", justify="right", style="dim")
+    table.add_column("Archetype")
+    table.add_column("Calibration", justify="right")
+    table.add_column("Sims", justify="right")
+    table.add_column("Correct", justify="right")
+    table.add_column("Incorrect", justify="right")
+
+    for i, a in enumerate(leaders, 1):
+        score = (
+            f"{a.calibration_score:.0%}"
+            if a.calibration_score is not None
+            else "N/A"
+        )
+        table.add_row(
+            str(i),
+            a.archetype,
+            score,
+            str(a.simulations_participated),
+            str(a.predictions_correct),
+            str(a.predictions_incorrect),
+        )
+    console.print(table)
+
+
+@app.command()
+def evolve() -> None:
+    """Run hypothesis and agent evolution cycles."""
+    from forge.evolve.agent_evolution import run_agent_evolution
+    from forge.evolve.selection import run_evolution_cycle
+
+    store = _get_store()
+
+    h_result = run_evolution_cycle(store)
+    a_result = run_agent_evolution(store)
+
+    console.print("[bold]Evolution Cycle Complete[/bold]")
+    console.print(f"  Hypotheses culled: {len(h_result.culled)}")
+    console.print(f"  Hypotheses dormant: {len(h_result.dormant)}")
+    console.print(f"  Hypotheses promoted: {len(h_result.promoted)}")
+    console.print(f"  Confidence boosted: {len(h_result.boosted)}")
+    console.print(f"  Confirmed: {len(h_result.confirmed)}")
+    console.print(f"  Forked: {len(h_result.forked)}")
+    console.print(f"  Agents deactivated: {len(a_result.deactivated)}")
+
+
+@app.command(name="export")
+def export_vault(
+    vault_path: str = typer.Argument(
+        help="Path to Obsidian vault directory",
+    ),
+) -> None:
+    """Export knowledge graph to Obsidian vault (one-way sync)."""
+    from forge.export.obsidian import render_vault
+
+    store = _get_store()
+    render_vault(store, vault_path)
+    console.print(f"Exported to [bold]{vault_path}[/bold]")
