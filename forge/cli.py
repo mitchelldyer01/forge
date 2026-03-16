@@ -622,3 +622,39 @@ def calibration() -> None:
                 f"{b['accuracy']:.0%}",
             )
         console.print(table)
+
+
+# ------------------------------------------------------------------
+# Pipeline commands
+# ------------------------------------------------------------------
+
+
+@app.command()
+def run(
+    once: bool = typer.Option(False, "--once", help="Run a single pipeline cycle"),
+) -> None:
+    """Run the ingestion pipeline (continuous or single cycle)."""
+    from forge.pipeline.runner import run_pipeline_once
+    from forge.pipeline.scheduler import run_scheduled
+
+    settings = Settings()
+    store = _get_store()
+    llm = _get_llm()
+
+    if once:
+        result = asyncio.run(run_pipeline_once(store, llm))
+        ingestion = result["ingestion"]
+        console.print(
+            f"Fetched {ingestion['articles_fetched']} article(s), "
+            f"extracted {ingestion['claims_extracted']} claim(s), "
+            f"{result['overdue_predictions']} overdue prediction(s)."
+        )
+    else:
+        console.print(
+            f"Starting continuous pipeline (interval: {settings.poll_interval_minutes}m). "
+            "Press Ctrl+C to stop."
+        )
+        try:
+            asyncio.run(run_scheduled(store, llm, settings.poll_interval_minutes))
+        except KeyboardInterrupt:
+            console.print("\nPipeline stopped.")
