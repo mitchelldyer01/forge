@@ -153,3 +153,81 @@ class TestExtractPrompts:
 
         with pytest.raises(FileNotFoundError):
             load_prompt("nonexistent_prompt")
+
+
+# ------------------------------------------------------------------
+# Relevance filtering
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRelevanceFiltering:
+    def test_filter_novel_claims_pass(self, db: Store) -> None:
+        """Claims with no similar hypotheses are novel and pass the filter."""
+        from forge.extract.relevance import filter_relevant_claims
+
+        claims = [
+            {"claim": "Novel claim about quantum computing", "confidence": 60, "tags": []},
+        ]
+        # No hypotheses in DB — everything is novel
+        result = filter_relevant_claims(claims, db, threshold=0.6)
+        assert len(result) == 1
+
+    def test_filter_near_duplicates_removed(self, db: Store) -> None:
+        """Claims nearly identical to existing hypotheses are filtered out."""
+        import numpy as np
+
+        from forge.extract.relevance import filter_relevant_claims
+        h = db.save_hypothesis(claim="AI will replace SaaS", source="manual")
+        vec = np.random.default_rng(42).random(384).astype(np.float32)
+        db.update_hypothesis(h.id, embedding=vec.tobytes())
+
+        # Claim with identical embedding should be filtered as duplicate
+        claims = [
+            {"claim": "AI will replace SaaS", "confidence": 65, "tags": []},
+        ]
+
+        result = filter_relevant_claims(
+            claims, db, threshold=0.6, duplicate_threshold=0.95,
+            _embed_fn=lambda _text: vec,  # Force identical embedding
+        )
+        assert len(result) == 0
+
+    def test_filter_related_claims_pass(self, db: Store) -> None:
+        """Claims related to existing hypotheses (similarity > threshold) pass."""
+        import numpy as np
+
+        from forge.extract.relevance import filter_relevant_claims
+        rng = np.random.default_rng(42)
+        vec1 = rng.random(384).astype(np.float32)
+        vec1 /= np.linalg.norm(vec1)
+
+        h = db.save_hypothesis(claim="Existing AI claim", source="manual")
+        db.update_hypothesis(h.id, embedding=vec1.tobytes())
+
+        # Create a vector with ~0.8 similarity (related but not duplicate)
+        noise = rng.random(384).astype(np.float32) * 0.3
+        vec2 = vec1 + noise
+        vec2 /= np.linalg.norm(vec2)
+
+        claims = [{"claim": "Related AI claim", "confidence": 60, "tags": []}]
+
+        result = filter_relevant_claims(
+            claims, db, threshold=0.6, duplicate_threshold=0.99,
+            _embed_fn=lambda _text: vec2,
+        )
+        assert len(result) == 1
+
+    def test_filter_empty_claims_returns_empty(self, db: Store) -> None:
+        from forge.extract.relevance import filter_relevant_claims
+
+        result = filter_relevant_claims([], db)
+        assert result == []
+
+    def test_filter_threshold_configurable(self, db: Store) -> None:
+        """Filter uses provided threshold."""
+        from forge.extract.relevance import filter_relevant_claims
+
+        claims = [{"claim": "Some claim", "confidence": 50, "tags": []}]
+        result = filter_relevant_claims(claims, db, threshold=0.9)
+        assert len(result) == 1  # Novel claims still pass
