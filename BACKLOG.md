@@ -1,6 +1,6 @@
 # FORGE Backlog
 
-## Phase 0: The Kernel [CURRENT]
+## Phase 0: The Kernel [COMPLETE]
 The atomic unit of value. A CLI that takes a claim, stress-tests it through
 structured analysis (steelman -> redteam -> judge), and returns a verdict.
 
@@ -135,23 +135,24 @@ Target: average >= 3.5, at least 3 scores of 4+. See Step 6 below.
 - All tasks checked off in this file
 - Git log shows one commit per task with clean messages
 
-## Phase 1: Memory & Retrieval
-- [ ] P1.1: Embedding generation (sentence-transformers, store as BLOB)
-- [ ] P1.2: Similarity search over hypothesis graph
-- [ ] P1.3: Inject top-3 related prior hypotheses into analysis context
-- [ ] P1.4: Judge extracts relations (supports/contradicts/refines) to existing hypotheses
-- [ ] P1.5: `forge graph <topic>` — show related hypotheses as a tree
-- [ ] P1.6: Tests for retrieval + relation extraction
-- [ ] P1.7: Coverage >= 85% on new code
+## Phase 1: Memory & Retrieval [COMPLETE]
+- [x] P1.1: Embedding generation (sentence-transformers, store as BLOB)
+- [x] P1.2: Similarity search over hypothesis graph
+- [x] P1.3: Inject top-3 related prior hypotheses into analysis context
+- [x] P1.4: Judge extracts relations (supports/contradicts/refines) to existing hypotheses
+- [x] P1.5: `forge graph <topic>` — show related hypotheses as a tree
+- [x] P1.6: Tests for retrieval + relation extraction
+- [x] P1.7: Coverage >= 85% on new code (achieved 93%, 117 tests)
 
-## Phase 2: Swarm Simulation
+## Phase 2: Swarm Simulation [CURRENT]
+- [ ] P2.0: Store CRUD for simulations, personas, turns, predictions
 - [ ] P2.1: Agent persona generation from seed material
 - [ ] P2.2: Arena — multi-round simulation loop with async orchestration
 - [ ] P2.3: Interaction selection (opposing views, domain experts, contrarians)
 - [ ] P2.4: Consensus extraction (computational, no LLM)
 - [ ] P2.5: Prediction extraction from simulation output
-- [ ] P2.6: `forge simulate "scenario"` CLI command
-- [ ] P2.7: Upgrade path: high-confidence structured claims auto-queue for swarm
+- [ ] P2.6: `forge simulate "scenario"` CLI command with `--agents N` flag
+- [ ] P2.7: Upgrade path: flag high-confidence claims for swarm (no scheduler)
 - [ ] P2.8: Coverage >= 85% on new code
 
 ## Phase 3: Continuous Ingestion + Calibration
