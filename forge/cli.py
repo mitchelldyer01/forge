@@ -578,3 +578,47 @@ def predictions(
             p.resolution_deadline[:10] if p.resolution_deadline else "-",
         )
     console.print(table)
+
+
+# ------------------------------------------------------------------
+# Calibration command
+# ------------------------------------------------------------------
+
+
+@app.command()
+def calibration() -> None:
+    """Show calibration report: accuracy, Brier score, bucket breakdown."""
+    from rich.table import Table
+
+    from forge.calibrate.scorer import compute_calibration
+
+    store = _get_store()
+    resolved = store.list_resolved_predictions()
+
+    if not resolved:
+        console.print("No resolved predictions yet. Use `forge resolve` to resolve predictions.")
+        return
+
+    report = compute_calibration(resolved)
+
+    console.print("\n[bold]Calibration Report[/bold]")
+    console.print(f"  Total predictions: {report['total']}")
+    console.print(f"  Resolved: {report['resolved']}")
+    console.print(f"  Accuracy: {report['accuracy']:.1%}")
+    console.print(f"  Brier score: {report['brier_score']:.4f}")
+
+    if report["buckets"]:
+        table = Table(title="Calibration Buckets")
+        table.add_column("Confidence", justify="center")
+        table.add_column("Total", justify="right")
+        table.add_column("Correct", justify="right")
+        table.add_column("Accuracy", justify="right")
+
+        for b in report["buckets"]:
+            table.add_row(
+                b["bucket"],
+                str(b["total"]),
+                str(b["correct"]),
+                f"{b['accuracy']:.0%}",
+            )
+        console.print(table)

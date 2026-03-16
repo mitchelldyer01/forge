@@ -148,3 +148,142 @@ class TestResolutionTracking:
         resolved = db.list_resolved_predictions()
         assert len(resolved) == 1
         assert resolved[0].resolved_as == "false"
+
+
+# ------------------------------------------------------------------
+# Calibration scoring
+# ------------------------------------------------------------------
+
+
+def _make_resolved_predictions(
+    db: Store, simulation_id: str, data: list[tuple[int, str]],
+) -> None:
+    """Helper: create predictions with given (confidence, outcome) pairs."""
+    now = datetime.now(UTC).isoformat()
+    for confidence, outcome in data:
+        p = db.save_prediction(
+            simulation_id=simulation_id,
+            claim=f"Prediction at {confidence}%",
+            confidence=confidence,
+        )
+        db.update_prediction(p.id, resolved_as=outcome, resolved_at=now)
+
+
+@pytest.mark.unit
+class TestCalibrationScoring:
+    def test_compute_brier_score_perfect(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        from forge.calibrate.scorer import compute_brier_score
+
+        # All 100% predictions resolved true = perfect score of 0
+        _make_resolved_predictions(db, sample_simulation.id, [
+            (100, "true"), (100, "true"), (0, "false"), (0, "false"),
+        ])
+        predictions = db.list_resolved_predictions()
+        score = compute_brier_score(predictions)
+        assert score == 0.0
+
+    def test_compute_brier_score_worst(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        from forge.calibrate.scorer import compute_brier_score
+
+        # All 100% predictions resolved false = worst score of 1.0
+        _make_resolved_predictions(db, sample_simulation.id, [
+            (100, "false"), (0, "true"),
+        ])
+        predictions = db.list_resolved_predictions()
+        score = compute_brier_score(predictions)
+        assert score == 1.0
+
+    def test_compute_brier_score_excludes_unresolvable(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        from forge.calibrate.scorer import compute_brier_score
+
+        _make_resolved_predictions(db, sample_simulation.id, [
+            (80, "true"), (80, "unresolvable"),
+        ])
+        predictions = db.list_resolved_predictions()
+        score = compute_brier_score(predictions)
+        # Only one scorable prediction: (0.8 - 1)^2 = 0.04
+        assert abs(score - 0.04) < 0.001
+
+    def test_compute_brier_score_partial_counts_half(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        from forge.calibrate.scorer import compute_brier_score
+
+        _make_resolved_predictions(db, sample_simulation.id, [
+            (50, "partial"),
+        ])
+        predictions = db.list_resolved_predictions()
+        score = compute_brier_score(predictions)
+        # (0.5 - 0.5)^2 = 0.0
+        assert score == 0.0
+
+    def test_compute_brier_score_empty_returns_zero(self) -> None:
+        from forge.calibrate.scorer import compute_brier_score
+
+        assert compute_brier_score([]) == 0.0
+
+    def test_compute_calibration_buckets(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        from forge.calibrate.scorer import compute_calibration
+
+        _make_resolved_predictions(db, sample_simulation.id, [
+            (75, "true"), (72, "true"), (78, "false"),  # 70-80 bucket
+            (55, "true"), (52, "false"),                 # 50-60 bucket
+        ])
+        predictions = db.list_resolved_predictions()
+        report = compute_calibration(predictions)
+
+        assert report["total"] == 5
+        assert report["resolved"] == 5
+        buckets = {b["bucket"]: b for b in report["buckets"]}
+        assert "70-80" in buckets
+        assert buckets["70-80"]["total"] == 3
+        assert buckets["70-80"]["correct"] == 2
+
+    def test_compute_calibration_empty_predictions(self) -> None:
+        from forge.calibrate.scorer import compute_calibration
+
+        report = compute_calibration([])
+        assert report["total"] == 0
+        assert report["brier_score"] == 0.0
+
+    def test_take_calibration_snapshot_saves(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        from forge.calibrate.scorer import take_calibration_snapshot
+
+        _make_resolved_predictions(db, sample_simulation.id, [
+            (80, "true"), (60, "false"),
+        ])
+
+        snapshot = take_calibration_snapshot(db)
+        assert snapshot.resolved_predictions == 2
+        assert snapshot.accuracy_overall is not None
+
+        # Verify it's persisted
+        latest = db.get_latest_calibration_snapshot()
+        assert latest is not None
+        assert latest.id == snapshot.id
+
+    def test_calibration_snapshot_stores_json(
+        self, db: Store, sample_simulation: Simulation,
+    ) -> None:
+        import json
+
+        from forge.calibrate.scorer import take_calibration_snapshot
+
+        _make_resolved_predictions(db, sample_simulation.id, [
+            (80, "true"), (80, "true"), (80, "false"),
+        ])
+
+        snapshot = take_calibration_snapshot(db)
+        assert snapshot.calibration_json is not None
+        data = json.loads(snapshot.calibration_json)
+        assert isinstance(data, list)  # List of bucket dicts
