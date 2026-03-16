@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
 from forge.cli import app
+from forge.db.models import Prediction, Simulation
+from forge.swarm.arena import SimulationResult
+from forge.swarm.consensus import ConsensusReport
 
 runner = CliRunner()
 
@@ -198,3 +201,102 @@ class TestForgeGraph:
             assert result.exit_code == 0
             assert "Standalone claim" in result.output
             assert "No relations" in result.output
+
+
+def _mock_simulate_result():
+    """Create mock simulation result for testing."""
+    sim = Simulation(
+        id="s_test123",
+        mode="scenario",
+        seed_text="Test scenario",
+        agent_count=5,
+        rounds=3,
+        status="complete",
+        predictions_extracted=1,
+        started_at="2026-01-01T00:00:00+00:00",
+        completed_at="2026-01-01T00:02:00+00:00",
+        duration_seconds=120.0,
+    )
+    consensus = ConsensusReport(
+        majority_position="support",
+        majority_confidence=72.0,
+        majority_fraction=0.7,
+    )
+    prediction = Prediction(
+        id="p_test123",
+        simulation_id="s_test123",
+        claim="Test prediction claim",
+        confidence=65,
+        consensus_strength=0.8,
+        created_at="2026-01-01T00:02:00+00:00",
+    )
+    sim_result = SimulationResult(
+        simulation=sim,
+        turns=[],
+        consensus=consensus,
+        duration_seconds=120.0,
+    )
+    return {
+        "simulation": sim,
+        "sim_result": sim_result,
+        "consensus": consensus,
+        "predictions": [prediction],
+    }
+
+
+class TestForgeSimulate:
+    def _patch_simulate(self):
+        """Patch _get_store, _get_llm, and _run_simulate for simulate tests."""
+        from forge.db.store import Store
+
+        store = Store(":memory:")
+        return (
+            patch("forge.cli._get_store", return_value=store),
+            patch("forge.cli._get_llm", return_value=MagicMock()),
+            patch("forge.cli._run_simulate", new_callable=AsyncMock),
+        )
+
+    @pytest.mark.integration
+    def test_simulate_runs_successfully(self) -> None:
+        p_store, p_llm, p_run = self._patch_simulate()
+        with p_store, p_llm, p_run as mock_run:
+            mock_run.return_value = _mock_simulate_result()
+            result = runner.invoke(app, ["simulate", "Test scenario"])
+            assert result.exit_code == 0
+            assert "FORGE Simulation" in result.output
+            assert "support" in result.output
+            assert "Test prediction claim" in result.output
+
+    @pytest.mark.integration
+    def test_simulate_json_output(self) -> None:
+        p_store, p_llm, p_run = self._patch_simulate()
+        with p_store, p_llm, p_run as mock_run:
+            mock_run.return_value = _mock_simulate_result()
+            result = runner.invoke(app, ["simulate", "Test scenario", "--json"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["majority_position"] == "support"
+            assert data["majority_confidence"] == 72.0
+            assert len(data["predictions"]) == 1
+
+    @pytest.mark.integration
+    def test_simulate_nonzero_exit_on_failure(self) -> None:
+        p_store, p_llm, p_run = self._patch_simulate()
+        with p_store, p_llm, p_run as mock_run:
+            mock_run.side_effect = Exception("LLM down")
+            result = runner.invoke(app, ["simulate", "Test scenario"])
+            assert result.exit_code != 0
+
+    @pytest.mark.integration
+    def test_simulate_passes_options(self) -> None:
+        p_store, p_llm, p_run = self._patch_simulate()
+        with p_store, p_llm, p_run as mock_run:
+            mock_run.return_value = _mock_simulate_result()
+            result = runner.invoke(
+                app,
+                ["simulate", "Test", "--agents", "10", "--rounds", "2", "--context", "BG"],
+            )
+            assert result.exit_code == 0
+            call_args = mock_run.call_args
+            assert call_args[0][3] == 10  # agent_count
+            assert call_args[0][4] == 2   # round_count
