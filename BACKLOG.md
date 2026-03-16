@@ -144,16 +144,16 @@ Target: average >= 3.5, at least 3 scores of 4+. See Step 6 below.
 - [x] P1.6: Tests for retrieval + relation extraction
 - [x] P1.7: Coverage >= 85% on new code (achieved 93%, 117 tests)
 
-## Phase 2: Swarm Simulation [CURRENT]
-- [ ] P2.0: Store CRUD for simulations, personas, turns, predictions
-- [ ] P2.1: Agent persona generation from seed material
-- [ ] P2.2: Arena — multi-round simulation loop with async orchestration
-- [ ] P2.3: Interaction selection (opposing views, domain experts, contrarians)
-- [ ] P2.4: Consensus extraction (computational, no LLM)
-- [ ] P2.5: Prediction extraction from simulation output
-- [ ] P2.6: `forge simulate "scenario"` CLI command with `--agents N` flag
-- [ ] P2.7: Upgrade path: flag high-confidence claims for swarm (no scheduler)
-- [ ] P2.8: Coverage >= 85% on new code
+## Phase 2: Swarm Simulation [COMPLETE]
+- [x] P2.0: Store CRUD for simulations, personas, turns, predictions
+- [x] P2.1: Agent persona generation from seed material
+- [x] P2.2: Arena — multi-round simulation loop with async orchestration
+- [x] P2.3: Interaction selection (opposing views, domain experts, contrarians)
+- [x] P2.4: Consensus extraction (computational, no LLM)
+- [x] P2.5: Prediction extraction from simulation output
+- [x] P2.6: `forge simulate "scenario"` CLI command with `--agents N` flag
+- [x] P2.7: Upgrade path: flag high-confidence claims for swarm (no scheduler)
+- [x] P2.8: Coverage >= 85% on new code (achieved 91% on swarm, 93% overall, 211 tests)
 
 ## Phase 3: Continuous Ingestion + Calibration
 - [ ] P3.1: RSS feed polling + article storage
