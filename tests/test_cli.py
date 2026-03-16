@@ -66,3 +66,62 @@ class TestForgeTest:
             mock_analyze.side_effect = Exception("LLM down")
             result = runner.invoke(app, ["test", "test claim"])
             assert result.exit_code != 0
+
+
+class TestForgeHistory:
+    @pytest.mark.integration
+    def test_history_empty_db(self, tmp_path) -> None:
+        with patch("forge.cli._get_store") as mock_store:
+            from forge.db.store import Store
+
+            store = Store(":memory:")
+            mock_store.return_value = store
+            result = runner.invoke(app, ["history"])
+            assert result.exit_code == 0
+            assert "No hypotheses yet" in result.output
+
+    @pytest.mark.integration
+    def test_history_shows_hypotheses(self, tmp_path) -> None:
+        with patch("forge.cli._get_store") as mock_store:
+            from forge.db.store import Store
+
+            store = Store(":memory:")
+            store.save_hypothesis(claim="Test claim one", source="manual", confidence=75)
+            store.save_hypothesis(claim="Test claim two", source="manual", confidence=30)
+            mock_store.return_value = store
+            result = runner.invoke(app, ["history"])
+            assert result.exit_code == 0
+            assert "Test claim one" in result.output
+            assert "Test claim two" in result.output
+
+    @pytest.mark.integration
+    def test_history_status_filter(self) -> None:
+        with patch("forge.cli._get_store") as mock_store:
+            from forge.db.store import Store
+
+            store = Store(":memory:")
+            store.save_hypothesis(claim="Alive claim", source="manual")
+            h = store.save_hypothesis(claim="Dead claim", source="manual")
+            store.update_hypothesis(h.id, status="dead")
+            mock_store.return_value = store
+            result = runner.invoke(app, ["history", "--status", "alive"])
+            assert result.exit_code == 0
+            assert "Alive claim" in result.output
+            assert "Dead claim" not in result.output
+
+    @pytest.mark.integration
+    def test_history_limit(self) -> None:
+        with patch("forge.cli._get_store") as mock_store:
+            from forge.db.store import Store
+
+            store = Store(":memory:")
+            for i in range(5):
+                store.save_hypothesis(claim=f"Hypothesis {i}", source="manual")
+            mock_store.return_value = store
+            result = runner.invoke(app, ["history", "--limit", "2"])
+            assert result.exit_code == 0
+            # Should only show 2 hypotheses (table header also says "Hypotheses")
+            hypothesis_count = sum(
+                1 for i in range(5) if f"Hypothesis {i}" in result.output
+            )
+            assert hypothesis_count == 2

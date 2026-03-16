@@ -100,3 +100,39 @@ def _render_verdict(claim: str, verdict) -> None:
         panel_content += f"\n[bold]Tags:[/bold] {', '.join(verdict.tags)}"
 
     console.print(Panel(panel_content, title="[bold]FORGE Analysis[/bold]", subtitle=claim))
+
+
+@app.command()
+def history(
+    status: str | None = typer.Option(None, "--status", "-s", help="Filter by status"),
+    limit: int = typer.Option(20, "--limit", "-n", help="Max results"),
+) -> None:
+    """Show past hypotheses."""
+    from rich.table import Table
+
+    store = _get_store()
+    hypotheses = store.list_hypotheses(status=status)[:limit]
+
+    if not hypotheses:
+        console.print("No hypotheses yet.")
+        return
+
+    table = Table(title="Hypotheses")
+    table.add_column("ID", style="dim", max_width=12)
+    table.add_column("Claim", max_width=60)
+    table.add_column("Conf", justify="right")
+    table.add_column("Status")
+    table.add_column("Created", style="dim")
+
+    for h in hypotheses:
+        claim_short = h.claim[:57] + "..." if len(h.claim) > 60 else h.claim
+        conf_color = "green" if h.confidence >= 60 else "yellow" if h.confidence >= 40 else "red"
+        table.add_row(
+            h.id[:12],
+            claim_short,
+            f"[{conf_color}]{h.confidence}[/{conf_color}]",
+            h.status,
+            h.created_at[:10],
+        )
+
+    console.print(table)
