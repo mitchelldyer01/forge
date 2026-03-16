@@ -244,6 +244,95 @@ def _mock_simulate_result():
     }
 
 
+class TestUpgradePath:
+    """P2.7: High-confidence claims get flagged for swarm simulation."""
+
+    @pytest.mark.integration
+    def test_high_confidence_creates_queued_simulation(self) -> None:
+        """forge test with confidence > 60 creates a queued simulation."""
+        from forge.analyze.structured import Verdict
+
+        high_verdict = Verdict(
+            position="Likely true",
+            confidence=72,
+            synthesis="Strong case",
+            steelman_arg="Good evidence",
+            redteam_arg="Weak rebuttal",
+            conditions=[],
+            tags=["ai"],
+        )
+        with (
+            patch("forge.cli.analyze", new_callable=AsyncMock, return_value=high_verdict),
+            patch("forge.cli._get_store") as mock_store,
+            patch("forge.cli._retrieve_context", return_value=(None, None)),
+        ):
+            from forge.db.store import Store
+
+            store = Store(":memory:")
+            mock_store.return_value = store
+            result = runner.invoke(app, ["test", "High confidence claim"])
+            assert result.exit_code == 0
+            # Check a simulation was queued
+            sims = store.list_simulations()
+            assert len(sims) == 1
+            assert sims[0].mode == "claim_test"
+            assert "deeper analysis" in result.output.lower()
+
+    @pytest.mark.integration
+    def test_low_confidence_no_queued_simulation(self) -> None:
+        """forge test with confidence <= 60 does NOT create a queued simulation."""
+        from forge.analyze.structured import Verdict
+
+        low_verdict = Verdict(
+            position="Unlikely",
+            confidence=35,
+            synthesis="Weak case",
+            steelman_arg="Some merit",
+            redteam_arg="Strong counter",
+            conditions=[],
+            tags=["ai"],
+        )
+        with (
+            patch("forge.cli.analyze", new_callable=AsyncMock, return_value=low_verdict),
+            patch("forge.cli._get_store") as mock_store,
+            patch("forge.cli._retrieve_context", return_value=(None, None)),
+        ):
+            from forge.db.store import Store
+
+            store = Store(":memory:")
+            mock_store.return_value = store
+            result = runner.invoke(app, ["test", "Low confidence claim"])
+            assert result.exit_code == 0
+            sims = store.list_simulations()
+            assert len(sims) == 0
+
+    @pytest.mark.integration
+    def test_high_confidence_prints_suggestion(self) -> None:
+        """forge test with confidence > 60 prints a suggestion to simulate."""
+        from forge.analyze.structured import Verdict
+
+        high_verdict = Verdict(
+            position="Likely true",
+            confidence=80,
+            synthesis="Very strong",
+            steelman_arg="Overwhelming evidence",
+            redteam_arg="Minor objections",
+            conditions=[],
+            tags=[],
+        )
+        with (
+            patch("forge.cli.analyze", new_callable=AsyncMock, return_value=high_verdict),
+            patch("forge.cli._get_store") as mock_store,
+            patch("forge.cli._retrieve_context", return_value=(None, None)),
+        ):
+            from forge.db.store import Store
+
+            mock_store.return_value = Store(":memory:")
+            result = runner.invoke(app, ["test", "Simulate this claim"])
+            assert result.exit_code == 0
+            assert "forge simulate" in result.output.lower()
+
+
 class TestForgeSimulate:
     def _patch_simulate(self):
         """Patch _get_store, _get_llm, and _run_simulate for simulate tests."""

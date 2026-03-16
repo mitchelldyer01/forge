@@ -103,6 +103,20 @@ def test(
             save_verdict_relations(h.id, verdict, store)
         except Exception:
             pass  # Relations are optional
+        # Flag high-confidence claims for swarm simulation
+        if verdict.confidence > 60:
+            try:
+                store.save_simulation(
+                    mode="claim_test",
+                    seed_text=claim,
+                    seed_context=context,
+                )
+                console.print(
+                    f"\n[dim]This claim scored {verdict.confidence} confidence. "
+                    f"Run `forge simulate '{claim}'` for deeper analysis.[/dim]"
+                )
+            except Exception:
+                pass  # Queuing is optional
     except Exception as e:
         console.print(f"[yellow]Warning: could not persist result: {e}[/yellow]")
 
