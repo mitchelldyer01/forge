@@ -1,0 +1,124 @@
+# llama.cpp with ROCm for AMD Ryzen AI MAX+ 395 (Strix Halo / gfx1151)
+#
+# Build: docker build -t forge-llama -f Dockerfile.llama .
+# Run:   docker run -it --device=/dev/kfd --device=/dev/dri \
+#          --group-add video --group-add render \
+#          --security-opt seccomp=unconfined \
+#          -v ./models:/models \
+#          -p 8080:8080 \
+#          forge-llama
+
+ARG ROCM_VERSION=7.10.0
+ARG BASE_IMAGE=fedora:41
+
+# =============================================================================
+# Stage 1: Builder
+# =============================================================================
+FROM ${BASE_IMAGE} AS builder
+
+ARG ROCM_VERSION
+
+# Install build dependencies
+RUN dnf install -y \
+    cmake \
+    gcc \
+    gcc-c++ \
+    git \
+    make \
+    wget \
+    tar \
+    libcurl-devel \
+    && dnf clean all
+
+# Download and extract TheRock ROCm tarball for gfx1151
+WORKDIR /opt
+RUN wget -q https://repo.amd.com/rocm/tarball/therock-dist-linux-gfx1151-${ROCM_VERSION}.tar.gz \
+    && mkdir -p /opt/rocm \
+    && tar -xzf therock-dist-linux-gfx1151-${ROCM_VERSION}.tar.gz -C /opt/rocm --strip-components=1 \
+    && rm therock-dist-linux-gfx1151-${ROCM_VERSION}.tar.gz
+
+# Set up ROCm environment for building
+ENV ROCM_PATH=/opt/rocm
+ENV PATH="${ROCM_PATH}/bin:${PATH}"
+ENV LD_LIBRARY_PATH="${ROCM_PATH}/lib:${LD_LIBRARY_PATH}"
+ENV HIP_PATH="${ROCM_PATH}"
+ENV HIP_DEVICE_LIB_PATH="${ROCM_PATH}/lib/llvm/amdgcn/bitcode"
+ENV CMAKE_PREFIX_PATH="${ROCM_PATH}"
+ENV HIP_PLATFORM="amd"
+
+ARG LLAMA_CACHEBUST=2026-03-16
+
+# Clone llama.cpp
+WORKDIR /build
+RUN git clone --depth 1 https://github.com/ggerganov/llama.cpp.git
+
+# Build llama.cpp with ROCm/HIP support for gfx1151
+WORKDIR /build/llama.cpp
+RUN HIPCXX="${ROCM_PATH}/lib/llvm/bin/clang++" \
+    HIP_PATH="${ROCM_PATH}" \
+    cmake -S . -B build \
+        -DGGML_HIP=ON \
+        -DAMDGPU_TARGETS="gfx1151" \
+        -DGGML_HIP_UMA=ON \
+        -DGGML_HIP_ROCWMMA_FATTN=ON \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DLLAMA_CURL=ON \
+    && cmake --build build --config Release -j$(nproc)
+
+# Collect shared libraries for runtime
+RUN mkdir -p /build/libs \
+    && find /build/llama.cpp/build -name "*.so*" -exec cp {} /build/libs/ \; \
+    && ls -la /build/libs/
+
+# =============================================================================
+# Stage 2: Runtime
+# =============================================================================
+FROM ${BASE_IMAGE} AS runtime
+
+ARG ROCM_VERSION
+
+# Install minimal runtime dependencies
+RUN dnf install -y \
+    libcurl \
+    numactl \
+    libatomic \
+    && dnf clean all
+
+# Copy ROCm runtime libraries
+COPY --from=builder /opt/rocm /opt/rocm
+
+# Copy llama.cpp binaries
+COPY --from=builder /build/llama.cpp/build/bin/ /usr/local/bin/
+
+# Copy llama.cpp shared libraries
+COPY --from=builder /build/libs/ /usr/local/lib/
+
+# Set up runtime environment
+ENV ROCM_PATH=/opt/rocm
+ENV PATH="${ROCM_PATH}/bin:/usr/local/bin:${PATH}"
+ENV LD_LIBRARY_PATH="${ROCM_PATH}/lib:/usr/local/lib:${LD_LIBRARY_PATH}"
+ENV HIP_VISIBLE_DEVICES=0
+ENV HSA_OVERRIDE_GFX_VERSION=11.5.1
+ENV ROCBLAS_USE_HIPBLASLT=1
+ENV HIP_PLATFORM="amd"
+
+# Configure library paths
+RUN echo "/opt/rocm/lib" > /etc/ld.so.conf.d/rocm.conf \
+    && echo "/usr/local/lib" >> /etc/ld.so.conf.d/rocm.conf \
+    && ldconfig
+
+# Create models directory
+RUN mkdir -p /models
+
+EXPOSE 8080
+
+CMD ["llama-server", \
+     "-m", "/models/Qwen3-8B-Q4_K_M.gguf", \
+     "-c", "32768", \
+     "-np", "8", \
+     "-cb", \
+     "--host", "0.0.0.0", \
+     "--port", "8080", \
+     "-ngl", "99", \
+     "--jinja", \
+     "--metrics"]
