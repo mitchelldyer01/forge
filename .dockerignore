@@ -1,0 +1,10 @@
+# Keep build context small
+models/
+.git/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+uv.lock
+*.egg-info/
+.venv/
