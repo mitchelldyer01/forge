@@ -199,6 +199,23 @@ class TestLLMClientComplete:
 
     @pytest.mark.asyncio
     @pytest.mark.unit
+    async def test_complete_http_error_includes_response_body(
+        self, client: LLMClient, httpx_mock
+    ) -> None:
+        """HTTP errors include the server's response body for debugging."""
+        httpx_mock.add_response(
+            url=f"{client.base_url}/v1/chat/completions",
+            status_code=500,
+            text='{"error": "model not loaded, try again later"}',
+        )
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await client.complete(
+                messages=[{"role": "user", "content": "test"}],
+            )
+        assert "model not loaded" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
     async def test_complete_without_json_mode_skips_parsing(
         self, client: LLMClient, httpx_mock
     ) -> None:
@@ -274,6 +291,42 @@ class TestExtractJsonTruncated:
         valid = '{"agents": [{"archetype": "a"}, {"archetype": "b"}]}'
         result = _extract_json(valid)
         assert len(result["agents"]) == 2
+
+
+class TestParseErrorMessage:
+    """ParseError should include actionable diagnostic information."""
+
+    @pytest.mark.unit
+    def test_parse_error_includes_truncated_content(self) -> None:
+        """ParseError message shows first 200 chars of raw LLM output."""
+        raw = "This is not JSON " * 20  # long content
+        err = ParseError(raw, json.JSONDecodeError("Expecting value", raw, 0))
+        msg = str(err)
+        assert "LLM returned non-JSON" in msg
+        assert raw[:200] in msg
+
+    @pytest.mark.unit
+    def test_parse_error_includes_original_error_type(self) -> None:
+        """ParseError message includes the type of the original parse failure."""
+        raw = "garbage"
+        original = json.JSONDecodeError("Expecting value", raw, 0)
+        err = ParseError(raw, original)
+        msg = str(err)
+        assert "JSONDecodeError" in msg
+
+    @pytest.mark.unit
+    def test_parse_error_preserves_raw_content_attr(self) -> None:
+        """ParseError stores raw_content for programmatic access."""
+        raw = "some raw text"
+        err = ParseError(raw, ValueError("bad"))
+        assert err.raw_content == raw
+
+    @pytest.mark.unit
+    def test_parse_error_empty_content_says_so(self) -> None:
+        """ParseError with empty content explicitly says 'empty response'."""
+        err = ParseError("", json.JSONDecodeError("Expecting value", "", 0))
+        msg = str(err)
+        assert "empty response" in msg.lower()
 
 
 class TestMockLLMClient:

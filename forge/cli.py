@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 import httpx
 import typer
 from rich.console import Console
 from rich.panel import Panel
 
-from forge.analyze.structured import analyze
+from forge.analyze.structured import AnalysisError, analyze
 from forge.config import Settings
 from forge.db.store import Store
 from forge.llm.client import LLMClient
@@ -25,10 +26,30 @@ feed_app = typer.Typer(help="Manage RSS feeds")
 app.add_typer(feed_app, name="feed")
 console = Console()
 
+# Show LLM client warnings (malformed JSON retries, 503 retries) in terminal
+logging.basicConfig(format="%(message)s", level=logging.WARNING)
+
 
 @app.callback()
 def main() -> None:
     """FORGE — Calibrated Prediction Engine."""
+
+
+def _format_error(e: Exception) -> str:
+    """Format an exception into a helpful terminal error message."""
+    if isinstance(e, AnalysisError):
+        lines = [f"[red]Error:[/red] Analysis failed at [bold]{e.stage}[/bold] stage"]
+        lines.append(f"  Cause: {e.original_error}")
+        return "\n".join(lines)
+    if isinstance(e, httpx.ConnectError):
+        return (
+            f"[red]Error:[/red] Cannot connect to LLM server: {e}\n"
+            "[dim]Hint: Is llama-server running? Check `forge status`.[/dim]"
+        )
+    if isinstance(e, httpx.HTTPStatusError):
+        return f"[red]Error:[/red] {e}"
+    # Generic fallback — include exception type for debuggability
+    return f"[red]Error:[/red] {type(e).__name__}: {e}"
 
 
 def _get_store() -> Store:
@@ -67,7 +88,7 @@ def test(
             )
         )
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}", style="bold red")
+        console.print(_format_error(e))
         raise typer.Exit(code=1) from e
 
     if json_output:
@@ -312,7 +333,7 @@ def simulate(
             generate_population, run_simulation, extract_predictions,
         ))
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}", style="bold red")
+        console.print(_format_error(e))
         raise typer.Exit(code=1) from e
 
     if json_output:
@@ -340,6 +361,11 @@ async def _run_simulate(seed, llm, store, agent_count, round_count,
                         gen_pop, run_sim, extract_preds):
     """Orchestrate the full simulation pipeline."""
     population = await gen_pop(seed, llm, store, count=agent_count)
+    if not population:
+        raise RuntimeError(
+            f"No agents generated — LLM failed to produce valid personas "
+            f"(requested {agent_count}). Check LLM server output."
+        )
     sim_result = await run_sim(
         seed, population, llm, store, rounds=round_count, max_concurrent=8,
     )

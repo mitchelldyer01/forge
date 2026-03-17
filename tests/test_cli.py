@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from typer.testing import CliRunner
 
@@ -331,6 +332,116 @@ class TestUpgradePath:
             result = runner.invoke(app, ["test", "Simulate this claim"])
             assert result.exit_code == 0
             assert "forge simulate" in result.output.lower()
+
+
+class TestErrorMessages:
+    """Error output should give actionable diagnostic information."""
+
+    @pytest.mark.integration
+    def test_simulate_parse_error_shows_raw_content(self) -> None:
+        """When LLM returns non-JSON, error output includes what LLM returned."""
+        from forge.db.store import Store
+        from forge.llm.client import ParseError
+
+        with (
+            patch("forge.cli._get_store", return_value=Store(":memory:")),
+            patch("forge.cli._get_llm", return_value=MagicMock()),
+            patch(
+                "forge.cli._run_simulate",
+                new_callable=AsyncMock,
+                side_effect=ParseError(
+                    "I cannot help with that request",
+                    json.JSONDecodeError("Expecting value", "", 0),
+                ),
+            ),
+        ):
+            result = runner.invoke(app, ["simulate", "Test scenario"])
+            assert result.exit_code != 0
+            # Rich may wrap text across lines, so normalize whitespace
+            flat = " ".join(result.output.split())
+            assert "I cannot help with that request" in flat
+            assert "JSONDecodeError" in flat
+
+    @pytest.mark.integration
+    def test_simulate_connection_error_shows_url(self) -> None:
+        """When LLM server is unreachable, error says so clearly."""
+        from forge.db.store import Store
+
+        with (
+            patch("forge.cli._get_store", return_value=Store(":memory:")),
+            patch("forge.cli._get_llm", return_value=MagicMock()),
+            patch(
+                "forge.cli._run_simulate",
+                new_callable=AsyncMock,
+                side_effect=httpx.ConnectError("Connection refused"),
+            ),
+        ):
+            result = runner.invoke(app, ["simulate", "Test scenario"])
+            assert result.exit_code != 0
+            assert "llm" in result.output.lower() or "connect" in result.output.lower()
+
+    @pytest.mark.integration
+    def test_simulate_http_error_shows_response_body(self) -> None:
+        """When LLM returns HTTP error, the server's error message is shown."""
+        from forge.db.store import Store
+
+        with (
+            patch("forge.cli._get_store", return_value=Store(":memory:")),
+            patch("forge.cli._get_llm", return_value=MagicMock()),
+            patch(
+                "forge.cli._run_simulate",
+                new_callable=AsyncMock,
+                side_effect=httpx.HTTPStatusError(
+                    "HTTP 500 from http://localhost:8080: "
+                    '{"error": "model failed to load"}',
+                    request=httpx.Request("POST", "http://localhost:8080/v1/chat/completions"),
+                    response=httpx.Response(500),
+                ),
+            ),
+        ):
+            result = runner.invoke(app, ["simulate", "Test scenario"])
+            assert result.exit_code != 0
+            flat = " ".join(result.output.split())
+            assert "model failed to load" in flat
+            assert "500" in flat
+
+    @pytest.mark.integration
+    def test_test_parse_error_shows_stage(self) -> None:
+        """When analysis fails, the error shows which stage failed."""
+        from forge.analyze.structured import AnalysisError
+        from forge.llm.client import ParseError
+
+        with patch(
+            "forge.cli.analyze",
+            new_callable=AsyncMock,
+            side_effect=AnalysisError(
+                "steelman",
+                ParseError("not json", ValueError("bad")),
+            ),
+        ):
+            result = runner.invoke(app, ["test", "Test claim"])
+            assert result.exit_code != 0
+            assert "steelman" in result.output
+
+    @pytest.mark.integration
+    def test_simulate_empty_population_error_is_clear(self) -> None:
+        """When no agents can be generated, error clearly explains the issue."""
+        from forge.db.store import Store
+
+        with (
+            patch("forge.cli._get_store", return_value=Store(":memory:")),
+            patch("forge.cli._get_llm", return_value=MagicMock()),
+            patch(
+                "forge.cli._run_simulate",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError(
+                    "No agents generated — LLM failed to produce valid personas"
+                ),
+            ),
+        ):
+            result = runner.invoke(app, ["simulate", "Test scenario"])
+            assert result.exit_code != 0
+            assert "no agents" in result.output.lower()
 
 
 class TestForgeSimulate:
