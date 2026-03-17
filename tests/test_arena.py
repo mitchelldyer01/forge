@@ -6,10 +6,12 @@ Mirrors: forge/swarm/arena.py
 
 import json
 
+import httpx
 import pytest
 
 from forge.db.models import AgentPersona, Simulation
 from forge.db.store import Store
+from forge.llm.client import CompletionResponse, MockLLMClient, ParseError
 from forge.swarm.arena import SimulationResult, run_simulation
 from forge.swarm.consensus import ConsensusReport
 from forge.swarm.population import SeedMaterial
@@ -176,3 +178,81 @@ class TestRunSimulation:
         assert sim is not None
         assert sim.agent_count == 2
         assert sim.rounds == 3
+
+
+@pytest.mark.unit
+class TestArenaAgentResilience:
+    """Tests that arena rounds handle per-agent failures gracefully."""
+
+    @pytest.fixture
+    def seed(self) -> SeedMaterial:
+        return SeedMaterial(text="Test scenario for resilience")
+
+    @pytest.fixture
+    def three_agents(self, db: Store) -> list[AgentPersona]:
+        return [
+            _make_persona(db, "optimist", "Alice"),
+            _make_persona(db, "pessimist", "Bob"),
+            _make_persona(db, "analyst", "Carol"),
+        ]
+
+    async def test_arena_round1_continues_when_one_agent_fails(
+        self, seed: SeedMaterial, three_agents, db: Store,
+    ):
+        """One agent raises ParseError in round 1, others succeed."""
+        call_counter = 0
+
+        async def failing_complete(messages, **kwargs):
+            nonlocal call_counter
+            call_counter += 1
+            if call_counter == 2:  # second agent fails
+                raise ParseError("truncated", ValueError("bad json"))
+            data = _round1_response()
+            return CompletionResponse(
+                content=json.dumps(data),
+                parsed_json=data,
+                token_count=50,
+                raw_response={"mock": True},
+            )
+
+        mock = MockLLMClient()
+        mock.complete = failing_complete
+
+        # Need round 2 and 3 to also work — queue enough for remaining agents
+        # But first let's just run 1 round
+        result = await run_simulation(
+            seed, three_agents, mock, db, rounds=1, max_concurrent=1,
+        )
+        assert result.simulation.status == "complete"
+        round1_turns = db.list_turns_by_simulation(result.simulation.id, round=1)
+        # 2 agents succeeded, 1 failed and was skipped
+        assert len(round1_turns) == 2
+
+    async def test_arena_round1_timeout_skips_agent(
+        self, seed: SeedMaterial, three_agents, db: Store,
+    ):
+        """One agent times out in round 1, others succeed."""
+        call_counter = 0
+
+        async def timeout_complete(messages, **kwargs):
+            nonlocal call_counter
+            call_counter += 1
+            if call_counter == 1:  # first agent times out
+                raise httpx.ReadTimeout("read timed out")
+            data = _round1_response()
+            return CompletionResponse(
+                content=json.dumps(data),
+                parsed_json=data,
+                token_count=50,
+                raw_response={"mock": True},
+            )
+
+        mock = MockLLMClient()
+        mock.complete = timeout_complete
+
+        result = await run_simulation(
+            seed, three_agents, mock, db, rounds=1, max_concurrent=1,
+        )
+        assert result.simulation.status == "complete"
+        round1_turns = db.list_turns_by_simulation(result.simulation.id, round=1)
+        assert len(round1_turns) == 2

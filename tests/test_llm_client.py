@@ -255,6 +255,123 @@ class TestLLMClientComplete:
         assert body["max_tokens"] == 1024
 
 
+class TestLLMClientTimeout:
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_complete_retries_on_read_timeout(
+        self, httpx_mock
+    ) -> None:
+        """First call times out, second succeeds — should return successful response."""
+        client = LLMClient(base_url="http://127.0.0.1:8080", timeout=0.5, _backoff_base=0.01)
+        httpx_mock.add_exception(
+            httpx.ReadTimeout("read timed out"),
+            url=f"{client.base_url}/v1/chat/completions",
+        )
+        httpx_mock.add_response(
+            url=f"{client.base_url}/v1/chat/completions",
+            json={
+                "choices": [{"message": {"content": '{"ok": true}'}}],
+                "usage": {"completion_tokens": 5},
+            },
+        )
+        resp = await client.complete(
+            messages=[{"role": "user", "content": "test"}],
+            response_format={"type": "json_object"},
+        )
+        assert resp.parsed_json == {"ok": True}
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_complete_raises_after_max_timeout_retries(
+        self, httpx_mock
+    ) -> None:
+        """All calls timeout — raises after exhausting retries."""
+        client = LLMClient(
+            base_url="http://127.0.0.1:8080", timeout=0.5,
+            max_retries=2, _backoff_base=0.01,
+        )
+        for _ in range(3):
+            httpx_mock.add_exception(
+                httpx.ReadTimeout("read timed out"),
+                url=f"{client.base_url}/v1/chat/completions",
+            )
+        with pytest.raises(httpx.ReadTimeout):
+            await client.complete(
+                messages=[{"role": "user", "content": "test"}],
+            )
+
+
+class TestLLMClientTruncationRetry:
+    """Tests for smarter retry logic on truncated JSON."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_complete_increases_max_tokens_on_truncation_retry(
+        self, httpx_mock
+    ) -> None:
+        """Truncated (non-empty) content triggers higher max_tokens on retry."""
+        client = LLMClient(base_url="http://127.0.0.1:8080", timeout=5.0, _backoff_base=0.01)
+        # First response: truncated JSON
+        httpx_mock.add_response(
+            url=f"{client.base_url}/v1/chat/completions",
+            json={
+                "choices": [{"message": {"content": '{"agents": [{"archetype": "ana'}}],
+                "usage": {"completion_tokens": 100},
+            },
+        )
+        # Second response: valid JSON (retry)
+        httpx_mock.add_response(
+            url=f"{client.base_url}/v1/chat/completions",
+            json={
+                "choices": [{"message": {"content": '{"agents": [{"archetype": "analyst"}]}'}}],
+                "usage": {"completion_tokens": 50},
+            },
+        )
+        resp = await client.complete(
+            messages=[{"role": "user", "content": "test"}],
+            response_format={"type": "json_object"},
+            max_tokens=1024,
+        )
+        assert resp.parsed_json == {"agents": [{"archetype": "analyst"}]}
+        # The retry request should have increased max_tokens
+        requests = httpx_mock.get_requests()
+        retry_body = json.loads(requests[1].content)
+        assert retry_body["max_tokens"] > 1024
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_complete_does_not_increase_max_tokens_on_empty_retry(
+        self, httpx_mock
+    ) -> None:
+        """Empty content keeps same max_tokens on retry."""
+        client = LLMClient(base_url="http://127.0.0.1:8080", timeout=5.0, _backoff_base=0.01)
+        # First response: empty content
+        httpx_mock.add_response(
+            url=f"{client.base_url}/v1/chat/completions",
+            json={
+                "choices": [{"message": {"content": ""}}],
+                "usage": {"completion_tokens": 0},
+            },
+        )
+        # Second response: valid JSON
+        httpx_mock.add_response(
+            url=f"{client.base_url}/v1/chat/completions",
+            json={
+                "choices": [{"message": {"content": '{"ok": true}'}}],
+                "usage": {"completion_tokens": 10},
+            },
+        )
+        resp = await client.complete(
+            messages=[{"role": "user", "content": "test"}],
+            response_format={"type": "json_object"},
+            max_tokens=1024,
+        )
+        assert resp.parsed_json == {"ok": True}
+        requests = httpx_mock.get_requests()
+        retry_body = json.loads(requests[1].content)
+        assert retry_body["max_tokens"] == 1024
+
+
 class TestExtractJsonTruncated:
     """Tests for _extract_json handling truncated JSON from LLM."""
 

@@ -158,7 +158,14 @@ class LLMClient:
                 type(first_err).__name__,
                 snippet,
             )
-            raw = await self._request_with_retry(payload)
+            # If content was truncated (non-empty), increase max_tokens for retry
+            retry_payload = payload
+            if content.strip():
+                retry_payload = {
+                    **payload,
+                    "max_tokens": int(payload.get("max_tokens", 2048) * 1.5),
+                }
+            raw = await self._request_with_retry(retry_payload)
             content = raw["choices"][0]["message"]["content"]
             token_count = raw.get("usage", {}).get("completion_tokens", 0)
             try:
@@ -174,14 +181,26 @@ class LLMClient:
         )
 
     async def _request_with_retry(self, payload: dict) -> dict:
-        """Send HTTP request with exponential backoff retry on 503."""
-        last_exc: httpx.HTTPStatusError | None = None
+        """Send HTTP request with exponential backoff retry on 503 or timeout."""
+        last_exc: Exception | None = None
         for attempt in range(self.max_retries + 1):
-            async with httpx.AsyncClient(timeout=self.timeout) as http:
-                resp = await http.post(
-                    f"{self.base_url}/v1/chat/completions",
-                    json=payload,
-                )
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as http:
+                    resp = await http.post(
+                        f"{self.base_url}/v1/chat/completions",
+                        json=payload,
+                    )
+            except httpx.TimeoutException as exc:
+                if attempt < self.max_retries:
+                    wait = self._backoff_base * (2**attempt)
+                    logger.warning(
+                        "Timeout from LLM (%s), retrying in %.1fs (attempt %d)",
+                        type(exc).__name__, wait, attempt + 1,
+                    )
+                    await asyncio.sleep(wait)
+                    last_exc = exc
+                    continue
+                raise
             if resp.status_code == 503 and attempt < self.max_retries:
                 wait = self._backoff_base * (2**attempt)
                 logger.warning("503 from LLM, retrying in %.1fs (attempt %d)", wait, attempt + 1)

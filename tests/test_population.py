@@ -160,6 +160,14 @@ class TestGeneratePopulation:
         await generate_population(seed, mock_llm, db, count=BATCH_SIZE)
         assert mock_llm.last_max_tokens >= 2048
 
+    async def test_generate_population_requests_600_tokens_per_agent(
+        self, seed: SeedMaterial, mock_llm, db: Store,
+    ):
+        """Batch of 5 agents requests at least 3000 max_tokens (600 per agent)."""
+        mock_llm.set_response({"agents": []})
+        await generate_population(seed, mock_llm, db, count=BATCH_SIZE)
+        assert mock_llm.last_max_tokens >= 3000
+
     async def test_generate_population_handles_parse_error(
         self, seed: SeedMaterial, db: Store,
     ):
