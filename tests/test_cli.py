@@ -360,6 +360,7 @@ class TestErrorMessages:
             # Rich may wrap text across lines, so normalize whitespace
             flat = " ".join(result.output.split())
             assert "I cannot help with that request" in flat
+            assert "JSONDecodeError" in flat
 
     @pytest.mark.integration
     def test_simulate_connection_error_shows_url(self) -> None:
@@ -380,8 +381,8 @@ class TestErrorMessages:
             assert "llm" in result.output.lower() or "connect" in result.output.lower()
 
     @pytest.mark.integration
-    def test_simulate_http_error_shows_status_code(self) -> None:
-        """When LLM returns HTTP error, status code is shown."""
+    def test_simulate_http_error_shows_response_body(self) -> None:
+        """When LLM returns HTTP error, the server's error message is shown."""
         from forge.db.store import Store
 
         with (
@@ -391,7 +392,8 @@ class TestErrorMessages:
                 "forge.cli._run_simulate",
                 new_callable=AsyncMock,
                 side_effect=httpx.HTTPStatusError(
-                    "Server Error",
+                    "HTTP 500 from http://localhost:8080: "
+                    '{"error": "model failed to load"}',
                     request=httpx.Request("POST", "http://localhost:8080/v1/chat/completions"),
                     response=httpx.Response(500),
                 ),
@@ -399,7 +401,9 @@ class TestErrorMessages:
         ):
             result = runner.invoke(app, ["simulate", "Test scenario"])
             assert result.exit_code != 0
-            assert "500" in result.output
+            flat = " ".join(result.output.split())
+            assert "model failed to load" in flat
+            assert "500" in flat
 
     @pytest.mark.integration
     def test_test_parse_error_shows_stage(self) -> None:

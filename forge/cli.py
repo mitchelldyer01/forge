@@ -14,7 +14,7 @@ from rich.panel import Panel
 from forge.analyze.structured import AnalysisError, analyze
 from forge.config import Settings
 from forge.db.store import Store
-from forge.llm.client import LLMClient, ParseError
+from forge.llm.client import LLMClient
 from forge.swarm.population import SeedMaterial
 
 app = typer.Typer(
@@ -37,11 +37,6 @@ def main() -> None:
 
 def _format_error(e: Exception) -> str:
     """Format an exception into a helpful terminal error message."""
-    if isinstance(e, ParseError):
-        lines = [f"[red]Error:[/red] {e}"]
-        lines.append("[dim]Hint: Is your llama-server running with enough context? "
-                      "Try increasing --ctx-size.[/dim]")
-        return "\n".join(lines)
     if isinstance(e, AnalysisError):
         lines = [f"[red]Error:[/red] Analysis failed at [bold]{e.stage}[/bold] stage"]
         lines.append(f"  Cause: {e.original_error}")
@@ -52,10 +47,7 @@ def _format_error(e: Exception) -> str:
             "[dim]Hint: Is llama-server running? Check `forge status`.[/dim]"
         )
     if isinstance(e, httpx.HTTPStatusError):
-        return (
-            f"[red]Error:[/red] LLM server returned HTTP {e.response.status_code}\n"
-            f"  URL: {e.request.url}"
-        )
+        return f"[red]Error:[/red] {e}"
     # Generic fallback — include exception type for debuggability
     return f"[red]Error:[/red] {type(e).__name__}: {e}"
 

@@ -190,7 +190,13 @@ class LLMClient:
                     "Service Unavailable", request=resp.request, response=resp
                 )
                 continue
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                body = resp.text[:500]
+                raise httpx.HTTPStatusError(
+                    f"HTTP {resp.status_code} from {self.base_url}: {body}",
+                    request=resp.request,
+                    response=resp,
+                )
             return resp.json()
         raise last_exc  # type: ignore[misc]
 

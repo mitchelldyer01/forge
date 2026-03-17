@@ -199,6 +199,23 @@ class TestLLMClientComplete:
 
     @pytest.mark.asyncio
     @pytest.mark.unit
+    async def test_complete_http_error_includes_response_body(
+        self, client: LLMClient, httpx_mock
+    ) -> None:
+        """HTTP errors include the server's response body for debugging."""
+        httpx_mock.add_response(
+            url=f"{client.base_url}/v1/chat/completions",
+            status_code=500,
+            text='{"error": "model not loaded, try again later"}',
+        )
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            await client.complete(
+                messages=[{"role": "user", "content": "test"}],
+            )
+        assert "model not loaded" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
     async def test_complete_without_json_mode_skips_parsing(
         self, client: LLMClient, httpx_mock
     ) -> None:
