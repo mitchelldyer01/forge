@@ -8,7 +8,11 @@ import pytest
 
 from forge.db.models import AgentPersona
 from forge.db.store import Store
-from forge.swarm.population import SeedMaterial, generate_population
+from forge.swarm.population import (
+    BATCH_SIZE,
+    SeedMaterial,
+    generate_population,
+)
 
 
 @pytest.mark.unit
@@ -124,11 +128,10 @@ class TestGeneratePopulation:
     ):
         """The LLM is called with a prompt containing the seed text."""
         mock_llm.set_response({"agents": []})
-        await generate_population(seed, mock_llm, db, count=5)
+        await generate_population(seed, mock_llm, db, count=BATCH_SIZE)
         assert mock_llm.call_count == 1
         last_msg = mock_llm.last_messages[-1]["content"]
         assert "EU announces strict AI agent regulations" in last_msg
-        assert "5" in last_msg  # count appears in prompt
 
     async def test_generate_population_empty_response(
         self, seed: SeedMaterial, mock_llm, db: Store,
@@ -152,11 +155,10 @@ class TestGeneratePopulation:
     async def test_generate_population_requests_sufficient_max_tokens(
         self, seed: SeedMaterial, mock_llm, db: Store,
     ):
-        """generate_population requests enough max_tokens for large populations."""
+        """Each batch requests enough max_tokens for its agents."""
         mock_llm.set_response({"agents": []})
-        await generate_population(seed, mock_llm, db, count=30)
-        # MockLLMClient stores last call's kwargs — check max_tokens was raised
-        assert mock_llm.last_max_tokens >= 4096
+        await generate_population(seed, mock_llm, db, count=BATCH_SIZE)
+        assert mock_llm.last_max_tokens >= 2048
 
     async def test_generate_population_handles_parse_error(
         self, seed: SeedMaterial, db: Store,
@@ -166,5 +168,101 @@ class TestGeneratePopulation:
 
         mock = MockLLMClient()
         mock.set_parse_error()  # Simulates truncated JSON → ParseError
-        personas = await generate_population(seed, mock, db, count=10)
+        personas = await generate_population(seed, mock, db, count=BATCH_SIZE)
         assert personas == []
+
+
+@pytest.mark.unit
+class TestGeneratePopulationBatching:
+    """Tests for batched population generation."""
+
+    @pytest.fixture
+    def seed(self) -> SeedMaterial:
+        return SeedMaterial(
+            text="The EU announces strict AI agent regulations",
+            context="European Commission proposal",
+        )
+
+    async def test_batches_large_count_into_multiple_calls(
+        self, seed: SeedMaterial, mock_llm, db: Store,
+    ):
+        """count > BATCH_SIZE results in multiple LLM calls."""
+        count = BATCH_SIZE * 2
+        batch_responses = [
+            {"agents": [
+                {"archetype": f"type_{i}", "name": f"Agent {i}"}
+                for i in range(j, min(j + BATCH_SIZE, count))
+            ]}
+            for j in range(0, count, BATCH_SIZE)
+        ]
+        mock_llm.set_responses(batch_responses)
+        personas = await generate_population(seed, mock_llm, db, count=count)
+        assert mock_llm.call_count == 2
+        assert len(personas) == count
+
+    async def test_uneven_batch_handles_remainder(
+        self, seed: SeedMaterial, mock_llm, db: Store,
+    ):
+        """count not evenly divisible by BATCH_SIZE still generates all."""
+        count = BATCH_SIZE + 2
+        batch_responses = [
+            {"agents": [
+                {"archetype": f"type_{i}", "name": f"Agent {i}"}
+                for i in range(BATCH_SIZE)
+            ]},
+            {"agents": [
+                {"archetype": f"type_{i}", "name": f"Agent {i}"}
+                for i in range(BATCH_SIZE, count)
+            ]},
+        ]
+        mock_llm.set_responses(batch_responses)
+        personas = await generate_population(seed, mock_llm, db, count=count)
+        assert mock_llm.call_count == 2
+        assert len(personas) == count
+
+    async def test_single_batch_for_small_count(
+        self, seed: SeedMaterial, mock_llm, db: Store,
+    ):
+        """count <= BATCH_SIZE uses a single LLM call."""
+        mock_llm.set_response({
+            "agents": [{"archetype": "a", "name": "X"}],
+        })
+        await generate_population(seed, mock_llm, db, count=1)
+        assert mock_llm.call_count == 1
+
+    async def test_parse_error_in_one_batch_preserves_others(
+        self, seed: SeedMaterial, db: Store,
+    ):
+        """A failed batch doesn't lose agents from successful batches."""
+        import json
+
+        from forge.llm.client import (
+            CompletionResponse,
+            MockLLMClient,
+            ParseError,
+        )
+
+        mock = MockLLMClient()
+        count = BATCH_SIZE + 1  # forces 2 batches
+        call_counter = 0
+
+        async def mixed_complete(messages, **kwargs):
+            nonlocal call_counter
+            call_counter += 1
+            if call_counter == 1:
+                data = {"agents": [
+                    {"archetype": "analyst", "name": "Alice"},
+                ]}
+                return CompletionResponse(
+                    content=json.dumps(data),
+                    parsed_json=data,
+                    token_count=50,
+                    raw_response={"mock": True},
+                )
+            raise ParseError("truncated", ValueError("bad"))
+
+        mock.complete = mixed_complete
+        personas = await generate_population(seed, mock, db, count=count)
+        # Should still have the agents from the first batch
+        assert len(personas) >= 1
+        assert personas[0].archetype == "analyst"

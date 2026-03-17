@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+BATCH_SIZE = 5
+
 
 @dataclass
 class SeedMaterial:
@@ -23,6 +26,39 @@ class SeedMaterial:
 
     text: str
     context: str | None = None
+
+
+async def _generate_batch(
+    seed: SeedMaterial,
+    llm: object,
+    batch_count: int,
+) -> list[dict]:
+    """Generate a single batch of agent personas via one LLM call.
+
+    Returns a list of raw agent dicts, or empty list on failure.
+    """
+    prompt = load_swarm_prompt(
+        "persona_generator",
+        seed_text=seed.text,
+        seed_context=seed.context or "",
+        count=str(batch_count),
+    )
+
+    try:
+        response = await llm.complete(
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0.9,
+            max_tokens=max(2048, batch_count * 300),
+        )
+    except ParseError:
+        logger.warning(
+            "LLM returned truncated JSON for batch of %d agents", batch_count
+        )
+        return []
+
+    agents_data = response.parsed_json or {}
+    return agents_data.get("agents", [])
 
 
 async def generate_population(
@@ -33,7 +69,9 @@ async def generate_population(
 ) -> list[AgentPersona]:
     """Generate a diverse population of agent personas for simulation.
 
-    Makes one LLM call to generate personas, then persists each to the store.
+    Splits the requested count into batches of BATCH_SIZE and runs them
+    concurrently. Each batch is an independent LLM call, which avoids
+    truncation on large populations and gives the LLM more focus per agent.
 
     Args:
         seed: The scenario seed material.
@@ -44,29 +82,28 @@ async def generate_population(
     Returns:
         List of persisted AgentPersona models.
     """
-    prompt = load_swarm_prompt(
-        "persona_generator",
-        seed_text=seed.text,
-        seed_context=seed.context or "",
-        count=str(count),
-    )
+    # Split into batches
+    batch_sizes = []
+    remaining = count
+    while remaining > 0:
+        batch = min(BATCH_SIZE, remaining)
+        batch_sizes.append(batch)
+        remaining -= batch
 
-    try:
-        response = await llm.complete(
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.9,
-            max_tokens=max(4096, count * 300),
-        )
-    except ParseError:
-        logger.warning("LLM returned truncated JSON for population generation")
-        return []
+    # Run all batches concurrently
+    tasks = [
+        _generate_batch(seed, llm, batch_count)
+        for batch_count in batch_sizes
+    ]
+    batch_results = await asyncio.gather(*tasks)
 
-    agents_data = response.parsed_json or {}
-    agent_list = agents_data.get("agents", [])
+    # Flatten and persist
+    all_agents: list[dict] = []
+    for agents in batch_results:
+        all_agents.extend(agents)
 
     personas: list[AgentPersona] = []
-    for agent in agent_list:
+    for agent in all_agents:
         archetype = agent.get("archetype", "unknown")
         try:
             persona = store.save_agent_persona(
