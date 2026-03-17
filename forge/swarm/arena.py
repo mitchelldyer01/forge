@@ -158,8 +158,16 @@ async def _run_round1(
         )
 
     tasks = [react(agent) for agent in population]
-    turns = await asyncio.gather(*tasks)
-    return list(turns)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    turns: list[SimulationTurn] = []
+    for i, result in enumerate(results):
+        if isinstance(result, BaseException):
+            logger.warning(
+                "Agent %s failed in round 1: %s", population[i].id, result,
+            )
+        else:
+            turns.append(result)
+    return turns
 
 
 async def _run_round2(
@@ -237,8 +245,16 @@ async def _run_round2(
         )
 
     tasks = [interact(agent) for agent in population]
-    turns = await asyncio.gather(*tasks)
-    return list(turns)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    turns: list[SimulationTurn] = []
+    for i, result in enumerate(results):
+        if isinstance(result, BaseException):
+            logger.warning(
+                "Agent %s failed in round 2: %s", population[i].id, result,
+            )
+        else:
+            turns.append(result)
+    return turns
 
 
 async def _run_round3(
@@ -295,8 +311,16 @@ async def _run_round3(
         )
 
     tasks = [converge(agent) for agent in population]
-    turns = await asyncio.gather(*tasks)
-    return list(turns)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    turns: list[SimulationTurn] = []
+    for i, result in enumerate(results):
+        if isinstance(result, BaseException):
+            logger.warning(
+                "Agent %s failed in round 3: %s", population[i].id, result,
+            )
+        else:
+            turns.append(result)
+    return turns
 
 
 def _safe_json(content: str) -> dict:

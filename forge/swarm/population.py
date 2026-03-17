@@ -49,7 +49,7 @@ async def _generate_batch(
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             temperature=0.9,
-            max_tokens=max(2048, batch_count * 300),
+            max_tokens=max(2048, batch_count * 600),
         )
     except ParseError as e:
         logger.warning(
