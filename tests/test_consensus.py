@@ -198,3 +198,37 @@ class TestExtractConsensus:
         personas = {"ap_1": _persona("ap_1"), "ap_2": _persona("ap_2")}
         report = extract_consensus(turns, personas)
         assert report.majority_position == "support"
+
+
+@pytest.mark.unit
+class TestConfidenceTrend:
+    def test_confidence_trend_per_round(self):
+        """confidence_trend has one avg confidence value per round."""
+        turns = [
+            _turn("s1", "a1", round=1, confidence=60),
+            _turn("s2", "a2", round=1, confidence=80),
+            _turn("s3", "a1", round=2, confidence=70),
+            _turn("s4", "a2", round=2, confidence=90),
+            _turn("s5", "a1", round=3, confidence=75),
+            _turn("s6", "a2", round=3, confidence=85),
+        ]
+        personas = {"a1": _persona("a1"), "a2": _persona("a2")}
+        report = extract_consensus(turns, personas)
+        assert len(report.confidence_trend) == 3
+        assert report.confidence_trend[0] == 70.0   # avg(60,80)
+        assert report.confidence_trend[1] == 80.0   # avg(70,90)
+        assert report.confidence_trend[2] == 80.0   # avg(75,85)
+
+    def test_confidence_trend_empty_turns(self):
+        """Empty turns produce empty trend."""
+        report = extract_consensus([], {})
+        assert report.confidence_trend == []
+
+    def test_confidence_trend_single_round(self):
+        """Only round 1 turns produce single-element trend."""
+        turns = [
+            _turn("s1", "a1", round=1, confidence=50),
+        ]
+        personas = {"a1": _persona("a1")}
+        report = extract_consensus(turns, personas)
+        assert report.confidence_trend == [50.0]

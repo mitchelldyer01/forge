@@ -68,6 +68,7 @@ class ConsensusReport:
     conviction_shifts: list[ConvictionShift] = field(default_factory=list)
     edge_cases: list[EdgeCase] = field(default_factory=list)
     prediction_candidates: list[PredictionCandidate] = field(default_factory=list)
+    confidence_trend: list[float] = field(default_factory=list)
 
 
 def extract_consensus(
@@ -88,6 +89,7 @@ def extract_consensus(
             majority_position="neutral",
             majority_confidence=0.0,
             majority_fraction=0.0,
+            confidence_trend=[],
         )
 
     round3 = [t for t in turns if t.round == 3]
@@ -118,6 +120,9 @@ def extract_consensus(
     # Edge cases (positions held by <= 2 agents, excluding majority)
     edge_cases = _find_edge_cases(position_groups, majority_pos, personas)
 
+    # Confidence trend — average confidence per round
+    confidence_trend = _compute_confidence_trend(turns)
+
     return ConsensusReport(
         majority_position=majority_pos,
         majority_confidence=majority_confidence,
@@ -125,6 +130,7 @@ def extract_consensus(
         dissent_clusters=dissent_clusters,
         conviction_shifts=conviction_shifts,
         edge_cases=edge_cases,
+        confidence_trend=confidence_trend,
     )
 
 
@@ -211,6 +217,19 @@ def _find_conviction_shifts(
                 confidence_delta=r3_conf - r1_conf,
             ))
     return shifts
+
+
+def _compute_confidence_trend(turns: list[SimulationTurn]) -> list[float]:
+    """Compute average confidence per round, ordered by round number."""
+    rounds: dict[int, list[int]] = {}
+    for turn in turns:
+        r = turn.round or 0
+        if r > 0:
+            rounds.setdefault(r, []).append(turn.confidence or 0)
+    return [
+        sum(confs) / len(confs)
+        for _, confs in sorted(rounds.items())
+    ]
 
 
 def _find_edge_cases(

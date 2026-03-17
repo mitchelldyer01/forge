@@ -360,6 +360,10 @@ def simulate(
 async def _run_simulate(seed, llm, store, agent_count, round_count,
                         gen_pop, run_sim, extract_preds):
     """Orchestrate the full simulation pipeline."""
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+
+    from forge.cli_render import summarize_round
+
     population = await gen_pop(seed, llm, store, count=agent_count)
     if not population:
         raise RuntimeError(
@@ -367,28 +371,46 @@ async def _run_simulate(seed, llm, store, agent_count, round_count,
             f"(requested {agent_count}). Check LLM server output."
         )
 
+    total_work = agent_count * round_count
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total}"),
+        console=console,
+    )
+    task_id = progress.add_task("Simulating...", total=total_work)
+    round_summaries: list[str] = []
+
     def on_turn(turn, round_num, agent):
-        """Print each agent's turn as it completes."""
-        data = json.loads(turn.content) if turn.content else {}
-        position = data.get("position", data.get("final_position", "?"))
-        confidence = data.get("confidence", "?")
-        persona = json.loads(agent.persona_json)
-        name = persona.get("name", agent.archetype)
-        console.print(
-            f"  R{round_num} [bold]{name}[/bold] "
-            f"[dim]({agent.archetype})[/dim] "
-            f"→ {position} ({confidence}%)",
+        """Advance progress bar for each completed agent."""
+        progress.update(task_id, advance=1, description=f"Round {round_num}")
+
+    def on_round_complete(round_num, turns, pop, prev_turns=None):
+        """Collect round summary for display after progress completes."""
+        summary = summarize_round(
+            turns,
+            round_num=round_num,
+            expected_agents=len(pop),
+            prev_turns=prev_turns,
         )
+        round_summaries.append(summary.format_line())
 
     console.print(
         f"[dim]Running {round_count} rounds with "
         f"{agent_count} agents...[/dim]\n"
     )
-    sim_result = await run_sim(
-        seed, population, llm, store,
-        rounds=round_count, max_concurrent=2, on_turn=on_turn,
-    )
-    console.print()  # blank line after live turns
+    with progress:
+        sim_result = await run_sim(
+            seed, population, llm, store,
+            rounds=round_count, max_concurrent=2,
+            on_turn=on_turn, on_round_complete=on_round_complete,
+        )
+
+    # Print round summaries after progress bar finishes
+    for summary_line in round_summaries:
+        console.print(summary_line)
+    console.print()  # blank line before panel
 
     predictions = await extract_preds(
         seed, sim_result.consensus, llm, store, sim_result.simulation.id,
@@ -416,14 +438,33 @@ def _render_simulation(result: dict) -> None:
         else "yellow" if consensus.majority_confidence >= 40
         else "red"
     )
+    duration = sim_result.duration_seconds
+    duration_color = (
+        "red" if duration >= 1200
+        else "yellow" if duration >= 600
+        else "dim"
+    )
     panel_content = (
         f"[bold]Agents:[/bold] {sim.agent_count}  "
         f"[bold]Rounds:[/bold] {sim.rounds}  "
-        f"[bold]Duration:[/bold] {sim_result.duration_seconds:.1f}s\n\n"
+        f"[bold]Duration:[/bold] [{duration_color}]{duration:.1f}s[/{duration_color}]\n\n"
         f"[bold]Majority:[/bold] {consensus.majority_position} "
         f"[{color}]({consensus.majority_confidence:.0f}% confidence, "
         f"{consensus.majority_fraction:.0%} of agents)[/{color}]"
     )
+
+    # Confidence trend across rounds
+    if consensus.confidence_trend:
+        trend_parts = [f"{c:.0f}%" for c in consensus.confidence_trend]
+        panel_content += f"\n[bold]Confidence:[/bold] {' → '.join(trend_parts)}"
+
+    # Failed agents (compare expected vs actual round 3 participants)
+    r3_count = len([t for t in sim_result.turns if t.round == 3])
+    if r3_count < sim.agent_count:
+        failed = sim.agent_count - r3_count
+        panel_content += (
+            f"\n[yellow]({failed} agent(s) did not complete round 3)[/yellow]"
+        )
 
     if consensus.dissent_clusters:
         panel_content += "\n\n[bold]Dissent:[/bold]"
