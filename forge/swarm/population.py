@@ -56,7 +56,7 @@ async def generate_population(
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             temperature=0.9,
-            max_tokens=max(4096, count * 150),
+            max_tokens=max(4096, count * 300),
         )
     except ParseError:
         logger.warning("LLM returned truncated JSON for population generation")
