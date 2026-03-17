@@ -276,6 +276,42 @@ class TestExtractJsonTruncated:
         assert len(result["agents"]) == 2
 
 
+class TestParseErrorMessage:
+    """ParseError should include actionable diagnostic information."""
+
+    @pytest.mark.unit
+    def test_parse_error_includes_truncated_content(self) -> None:
+        """ParseError message shows first 200 chars of raw LLM output."""
+        raw = "This is not JSON " * 20  # long content
+        err = ParseError(raw, json.JSONDecodeError("Expecting value", raw, 0))
+        msg = str(err)
+        assert "LLM returned non-JSON" in msg
+        assert raw[:200] in msg
+
+    @pytest.mark.unit
+    def test_parse_error_includes_original_error_type(self) -> None:
+        """ParseError message includes the type of the original parse failure."""
+        raw = "garbage"
+        original = json.JSONDecodeError("Expecting value", raw, 0)
+        err = ParseError(raw, original)
+        msg = str(err)
+        assert "JSONDecodeError" in msg
+
+    @pytest.mark.unit
+    def test_parse_error_preserves_raw_content_attr(self) -> None:
+        """ParseError stores raw_content for programmatic access."""
+        raw = "some raw text"
+        err = ParseError(raw, ValueError("bad"))
+        assert err.raw_content == raw
+
+    @pytest.mark.unit
+    def test_parse_error_empty_content_says_so(self) -> None:
+        """ParseError with empty content explicitly says 'empty response'."""
+        err = ParseError("", json.JSONDecodeError("Expecting value", "", 0))
+        msg = str(err)
+        assert "empty response" in msg.lower()
+
+
 class TestMockLLMClient:
     @pytest.mark.asyncio
     @pytest.mark.unit

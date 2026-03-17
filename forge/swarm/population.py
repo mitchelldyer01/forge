@@ -51,9 +51,11 @@ async def _generate_batch(
             temperature=0.9,
             max_tokens=max(2048, batch_count * 300),
         )
-    except ParseError:
+    except ParseError as e:
         logger.warning(
-            "LLM returned truncated JSON for batch of %d agents", batch_count
+            "LLM returned invalid JSON for batch of %d agents: %s",
+            batch_count,
+            e,
         )
         return []
 

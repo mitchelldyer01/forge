@@ -19,7 +19,16 @@ class ParseError(Exception):
     def __init__(self, raw_content: str, original_error: Exception) -> None:
         self.raw_content = raw_content
         self.original_error = original_error
-        super().__init__(f"Failed to parse JSON from LLM response: {raw_content!r}")
+        if not raw_content.strip():
+            snippet = "(empty response)"
+        else:
+            snippet = raw_content[:200]
+            if len(raw_content) > 200:
+                snippet += "..."
+        error_type = type(original_error).__name__
+        super().__init__(
+            f"LLM returned non-JSON output ({error_type}): {snippet}"
+        )
 
 
 @dataclass
@@ -142,9 +151,12 @@ class LLMClient:
         # Try to parse JSON; on failure, retry the LLM call once
         try:
             parsed = _extract_json(content)
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError) as first_err:
+            snippet = content[:200] if content.strip() else "(empty)"
             logger.warning(
-                "Malformed JSON from LLM, retrying once: %s", content[:200]
+                "Malformed JSON from LLM (%s), retrying once. Content: %s",
+                type(first_err).__name__,
+                snippet,
             )
             raw = await self._request_with_retry(payload)
             content = raw["choices"][0]["message"]["content"]
