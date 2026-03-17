@@ -14,11 +14,37 @@ from forge.swarm.interaction import select_interactions
 from forge.swarm.prompts import load_swarm_prompt
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from forge.db.models import AgentPersona, Simulation, SimulationTurn
     from forge.db.store import Store
     from forge.swarm.population import SeedMaterial
 
 logger = logging.getLogger(__name__)
+
+
+def _collect_turns(
+    results: list,
+    population: list[AgentPersona],
+    round_num: int,
+    on_turn: Callable | None = None,
+    personas_map: dict[str, AgentPersona] | None = None,
+) -> list[SimulationTurn]:
+    """Filter successful turns from gather results and fire callbacks."""
+    turns: list[SimulationTurn] = []
+    for i, result in enumerate(results):
+        if isinstance(result, BaseException):
+            logger.warning(
+                "Agent %s failed in round %d: %s",
+                population[i].id, round_num, result,
+            )
+        else:
+            turns.append(result)
+            if on_turn and personas_map:
+                agent = personas_map.get(result.agent_persona_id)
+                if agent:
+                    on_turn(result, round_num, agent)
+    return turns
 
 
 @dataclass
@@ -38,7 +64,8 @@ async def run_simulation(
     store: Store,
     *,
     rounds: int = 3,
-    max_concurrent: int = 8,
+    max_concurrent: int = 2,
+    on_turn: Callable | None = None,
 ) -> SimulationResult:
     """Run a multi-round swarm simulation.
 
@@ -48,7 +75,9 @@ async def run_simulation(
         llm: LLM client (LLMClient or MockLLMClient).
         store: Database store for persistence.
         rounds: Number of simulation rounds (default 3).
-        max_concurrent: Max parallel LLM calls (default 8).
+        max_concurrent: Max parallel LLM calls (default 2).
+        on_turn: Optional callback(turn, round_num, agent) called
+            after each successful agent turn for real-time display.
 
     Returns:
         SimulationResult with simulation record, turns, and consensus.
@@ -73,6 +102,7 @@ async def run_simulation(
         # Round 1: Initial reactions
         r1_turns = await _run_round1(
             seed, population, llm, store, sim.id, sem,
+            on_turn=on_turn, personas_map=personas_map,
         )
         all_turns.extend(r1_turns)
 
@@ -81,6 +111,7 @@ async def run_simulation(
         if rounds >= 2:
             r2_turns = await _run_round2(
                 seed, population, r1_turns, personas_map, llm, store, sim.id, sem,
+                on_turn=on_turn,
             )
             all_turns.extend(r2_turns)
 
@@ -88,6 +119,7 @@ async def run_simulation(
         if rounds >= 3:
             r3_turns = await _run_round3(
                 seed, population, r1_turns, r2_turns, llm, store, sim.id, sem,
+                on_turn=on_turn, personas_map=personas_map,
             )
             all_turns.extend(r3_turns)
 
@@ -121,6 +153,9 @@ async def _run_round1(
     store: Store,
     sim_id: str,
     sem: asyncio.Semaphore,
+    *,
+    on_turn: Callable | None = None,
+    personas_map: dict[str, AgentPersona] | None = None,
 ) -> list[SimulationTurn]:
     """Round 1: Each agent independently reacts to the scenario."""
 
@@ -159,15 +194,7 @@ async def _run_round1(
 
     tasks = [react(agent) for agent in population]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    turns: list[SimulationTurn] = []
-    for i, result in enumerate(results):
-        if isinstance(result, BaseException):
-            logger.warning(
-                "Agent %s failed in round 1: %s", population[i].id, result,
-            )
-        else:
-            turns.append(result)
-    return turns
+    return _collect_turns(results, population, 1, on_turn, personas_map)
 
 
 async def _run_round2(
@@ -179,6 +206,8 @@ async def _run_round2(
     store: Store,
     sim_id: str,
     sem: asyncio.Semaphore,
+    *,
+    on_turn: Callable | None = None,
 ) -> list[SimulationTurn]:
     """Round 2: Each agent responds to selected opposing views."""
     # Build lookup of r1 turns by agent
@@ -246,15 +275,7 @@ async def _run_round2(
 
     tasks = [interact(agent) for agent in population]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    turns: list[SimulationTurn] = []
-    for i, result in enumerate(results):
-        if isinstance(result, BaseException):
-            logger.warning(
-                "Agent %s failed in round 2: %s", population[i].id, result,
-            )
-        else:
-            turns.append(result)
-    return turns
+    return _collect_turns(results, population, 2, on_turn, personas_map)
 
 
 async def _run_round3(
@@ -266,6 +287,9 @@ async def _run_round3(
     store: Store,
     sim_id: str,
     sem: asyncio.Semaphore,
+    *,
+    on_turn: Callable | None = None,
+    personas_map: dict[str, AgentPersona] | None = None,
 ) -> list[SimulationTurn]:
     """Round 3: Final positions with conviction deltas."""
     r1_by_agent = {t.agent_persona_id: t for t in r1_turns}
@@ -312,15 +336,7 @@ async def _run_round3(
 
     tasks = [converge(agent) for agent in population]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    turns: list[SimulationTurn] = []
-    for i, result in enumerate(results):
-        if isinstance(result, BaseException):
-            logger.warning(
-                "Agent %s failed in round 3: %s", population[i].id, result,
-            )
-        else:
-            turns.append(result)
-    return turns
+    return _collect_turns(results, population, 3, on_turn, personas_map)
 
 
 def _safe_json(content: str) -> dict:

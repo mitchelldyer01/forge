@@ -366,9 +366,30 @@ async def _run_simulate(seed, llm, store, agent_count, round_count,
             f"No agents generated — LLM failed to produce valid personas "
             f"(requested {agent_count}). Check LLM server output."
         )
-    sim_result = await run_sim(
-        seed, population, llm, store, rounds=round_count, max_concurrent=8,
+
+    def on_turn(turn, round_num, agent):
+        """Print each agent's turn as it completes."""
+        data = json.loads(turn.content) if turn.content else {}
+        position = data.get("position", data.get("final_position", "?"))
+        confidence = data.get("confidence", "?")
+        persona = json.loads(agent.persona_json)
+        name = persona.get("name", agent.archetype)
+        console.print(
+            f"  R{round_num} [bold]{name}[/bold] "
+            f"[dim]({agent.archetype})[/dim] "
+            f"→ {position} ({confidence}%)",
+        )
+
+    console.print(
+        f"[dim]Running {round_count} rounds with "
+        f"{agent_count} agents...[/dim]\n"
     )
+    sim_result = await run_sim(
+        seed, population, llm, store,
+        rounds=round_count, max_concurrent=2, on_turn=on_turn,
+    )
+    console.print()  # blank line after live turns
+
     predictions = await extract_preds(
         seed, sim_result.consensus, llm, store, sim_result.simulation.id,
     )

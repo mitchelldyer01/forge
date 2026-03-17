@@ -256,3 +256,99 @@ class TestArenaAgentResilience:
         assert result.simulation.status == "complete"
         round1_turns = db.list_turns_by_simulation(result.simulation.id, round=1)
         assert len(round1_turns) == 2
+
+
+@pytest.mark.unit
+class TestArenaOnTurnCallback:
+    """Tests for the on_turn real-time callback."""
+
+    @pytest.fixture
+    def seed(self) -> SeedMaterial:
+        return SeedMaterial(text="Test scenario for callback")
+
+    @pytest.fixture
+    def two_agents(self, db: Store) -> list[AgentPersona]:
+        return [
+            _make_persona(db, "optimist", "Alice"),
+            _make_persona(db, "pessimist", "Bob"),
+        ]
+
+    def _queue_responses_for_agents(self, mock_llm, agent_count: int):
+        responses = []
+        for _ in range(agent_count):
+            responses.append(_round1_response())
+        for _ in range(agent_count):
+            responses.append(_round2_response())
+        for _ in range(agent_count):
+            responses.append(_round3_response())
+        mock_llm.set_responses(responses)
+
+    async def test_on_turn_called_for_each_successful_turn(
+        self, seed: SeedMaterial, two_agents, mock_llm, db: Store,
+    ):
+        """on_turn is called once per successful agent turn."""
+        self._queue_responses_for_agents(mock_llm, 2)
+        received = []
+
+        def on_turn(turn, round_num, agent):
+            received.append((round_num, agent.archetype))
+
+        await run_simulation(
+            seed, two_agents, mock_llm, db,
+            rounds=3, max_concurrent=1, on_turn=on_turn,
+        )
+        # 2 agents * 3 rounds = 6 callbacks
+        assert len(received) == 6
+        # Round 1 comes first
+        assert all(r == 1 for r, _ in received[:2])
+        assert all(r == 2 for r, _ in received[2:4])
+        assert all(r == 3 for r, _ in received[4:6])
+
+    async def test_on_turn_not_called_for_failed_agents(
+        self, seed: SeedMaterial, db: Store,
+    ):
+        """on_turn is NOT called for agents that fail."""
+        agents = [
+            _make_persona(db, "optimist", "Alice"),
+            _make_persona(db, "pessimist", "Bob"),
+            _make_persona(db, "analyst", "Carol"),
+        ]
+        call_counter = 0
+
+        async def failing_complete(messages, **kwargs):
+            nonlocal call_counter
+            call_counter += 1
+            if call_counter == 2:
+                raise ParseError("truncated", ValueError("bad"))
+            data = _round1_response()
+            return CompletionResponse(
+                content=json.dumps(data),
+                parsed_json=data,
+                token_count=50,
+                raw_response={"mock": True},
+            )
+
+        mock = MockLLMClient()
+        mock.complete = failing_complete
+
+        received = []
+
+        def on_turn(turn, round_num, agent):
+            received.append(agent.archetype)
+
+        await run_simulation(
+            seed, agents, mock, db,
+            rounds=1, max_concurrent=1, on_turn=on_turn,
+        )
+        # 2 succeeded, 1 failed → 2 callbacks
+        assert len(received) == 2
+
+    async def test_simulation_works_without_on_turn(
+        self, seed: SeedMaterial, two_agents, mock_llm, db: Store,
+    ):
+        """on_turn is optional — simulation works without it."""
+        self._queue_responses_for_agents(mock_llm, 2)
+        result = await run_simulation(
+            seed, two_agents, mock_llm, db, rounds=3, max_concurrent=1,
+        )
+        assert result.simulation.status == "complete"
