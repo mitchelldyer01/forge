@@ -63,8 +63,8 @@ def filter_relevant_claims(
     # Lazy-load embedder if no test override
     embed_fn = _embed_fn
     if embed_fn is None:
-        from forge.retrieve.embeddings import Embedder
-        embedder = Embedder()
+        from forge.retrieve.embeddings import get_embedder
+        embedder = get_embedder()
         embed_fn = embedder.embed
 
     result = []

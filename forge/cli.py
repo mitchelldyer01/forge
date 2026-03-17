@@ -91,9 +91,9 @@ def test(
         )
         # Store embedding for future retrieval
         try:
-            from forge.retrieve.embeddings import Embedder
+            from forge.retrieve.embeddings import get_embedder
 
-            embedder = Embedder()
+            embedder = get_embedder()
             vec = embedder.embed(claim)
             store.update_hypothesis(h.id, embedding=vec.tobytes())
         except Exception:
@@ -153,9 +153,9 @@ def _render_verdict(claim: str, verdict) -> None:
 def _retrieve_context(claim: str, store: Store) -> tuple[str | None, str | None]:
     """Retrieve prior context for a claim if embeddings are available."""
     from forge.retrieve.context import retrieve_prior_context
-    from forge.retrieve.embeddings import Embedder
+    from forge.retrieve.embeddings import get_embedder
 
-    embedder = Embedder()
+    embedder = get_embedder()
     claim_vec = embedder.embed(claim)
     prior_text, existing_text = retrieve_prior_context(claim_vec, store, limit=3)
     return prior_text or None, existing_text or None

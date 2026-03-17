@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from forge.llm.client import ParseError
 from forge.swarm.prompts import load_swarm_prompt
 
 if TYPE_CHECKING:
@@ -50,11 +51,16 @@ async def generate_population(
         count=str(count),
     )
 
-    response = await llm.complete(
-        messages=[{"role": "user", "content": prompt}],
-        response_format={"type": "json_object"},
-        temperature=0.9,
-    )
+    try:
+        response = await llm.complete(
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0.9,
+            max_tokens=max(4096, count * 150),
+        )
+    except ParseError:
+        logger.warning("LLM returned truncated JSON for population generation")
+        return []
 
     agents_data = response.parsed_json or {}
     agent_list = agents_data.get("agents", [])
