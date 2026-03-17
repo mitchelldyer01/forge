@@ -8,8 +8,8 @@
 #          -p 8080:8080 \
 #          forge-llama
 
-ARG ROCM_VERSION=7.10.0
-ARG BASE_IMAGE=fedora:41
+ARG ROCM_VERSION=7.11.0
+ARG BASE_IMAGE=fedora:42
 
 # =============================================================================
 # Stage 1: Builder
@@ -46,7 +46,7 @@ ENV HIP_DEVICE_LIB_PATH="${ROCM_PATH}/lib/llvm/amdgcn/bitcode"
 ENV CMAKE_PREFIX_PATH="${ROCM_PATH}"
 ENV HIP_PLATFORM="amd"
 
-ARG LLAMA_CACHEBUST=2026-03-16
+ARG LLAMA_CACHEBUST=2026-03-17
 
 # Clone llama.cpp
 WORKDIR /build
