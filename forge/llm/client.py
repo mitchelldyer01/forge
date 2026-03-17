@@ -32,10 +32,39 @@ class CompletionResponse:
     raw_response: dict
 
 
+def _repair_truncated_json(text: str) -> dict:
+    """Attempt to repair truncated JSON by closing incomplete structures.
+
+    Finds the last complete object in a truncated JSON array and closes
+    the array/object brackets. Returns the repaired dict or raises
+    JSONDecodeError if no complete objects can be recovered.
+    """
+    # Find the last complete object boundary: `}, {` or `}]`
+    # We search backwards for the last `},` which marks a complete array element
+    last_complete = text.rfind("},")
+    if last_complete == -1:
+        # Try `}]` — maybe only one complete object before truncation
+        last_complete = text.rfind("}")
+        if last_complete == -1:
+            raise json.JSONDecodeError("No complete JSON object found", text, 0)
+
+    # Take everything up to and including the last complete `}`
+    partial = text[: last_complete + 1]
+
+    # Close any open brackets
+    open_brackets = partial.count("[") - partial.count("]")
+    open_braces = partial.count("{") - partial.count("}")
+    repaired = partial + "]" * open_brackets + "}" * open_braces
+
+    return json.loads(repaired)
+
+
 def _extract_json(text: str) -> dict:
-    """Extract JSON from text, handling thinking mode output.
+    """Extract JSON from text, handling thinking mode and truncated output.
 
     Strips <think>...</think> blocks and finds the first JSON object.
+    If the JSON is truncated, attempts to repair by recovering complete
+    objects from the partial output.
     """
     # Strip think blocks
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
@@ -47,8 +76,12 @@ def _extract_json(text: str) -> dict:
     # Try to find a JSON object in the text
     match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
     if match:
-        return json.loads(match.group())
-    raise json.JSONDecodeError("No JSON object found", text, 0)
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+    # Attempt truncated JSON repair
+    return _repair_truncated_json(cleaned)
 
 
 @dataclass
@@ -110,7 +143,9 @@ class LLMClient:
         try:
             parsed = _extract_json(content)
         except (json.JSONDecodeError, ValueError):
-            logger.warning("Malformed JSON from LLM, retrying once: %s", content[:200])
+            logger.warning(
+                "Malformed JSON from LLM, retrying once: %s", content[:200]
+            )
             raw = await self._request_with_retry(payload)
             content = raw["choices"][0]["message"]["content"]
             token_count = raw.get("usage", {}).get("completion_tokens", 0)

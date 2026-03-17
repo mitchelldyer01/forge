@@ -7,7 +7,7 @@ import json
 import httpx
 import pytest
 
-from forge.llm.client import CompletionResponse, LLMClient, ParseError
+from forge.llm.client import CompletionResponse, LLMClient, ParseError, _extract_json
 
 
 @pytest.fixture
@@ -236,6 +236,44 @@ class TestLLMClientComplete:
         body = json.loads(request.content)
         assert body["temperature"] == 0.3
         assert body["max_tokens"] == 1024
+
+
+class TestExtractJsonTruncated:
+    """Tests for _extract_json handling truncated JSON from LLM."""
+
+    @pytest.mark.unit
+    def test_extract_json_truncated_array_recovers_complete_objects(self) -> None:
+        """Truncated JSON with complete objects before the cut should recover them."""
+        truncated = (
+            '{"agents": [{"archetype": "analyst", "name": "Alice"}, '
+            '{"archetype": "founder", "name": "Bob"}, {"archetype": "regul'
+        )
+        result = _extract_json(truncated)
+        assert len(result["agents"]) == 2
+        assert result["agents"][0]["name"] == "Alice"
+        assert result["agents"][1]["name"] == "Bob"
+
+    @pytest.mark.unit
+    def test_extract_json_truncated_mid_object_recovers_prior(self) -> None:
+        """Truncation mid-object recovers all complete prior objects."""
+        truncated = '{"agents": [{"archetype": "a", "name": "X"}, {"archetype": "b", "name":'
+        result = _extract_json(truncated)
+        assert len(result["agents"]) == 1
+        assert result["agents"][0]["name"] == "X"
+
+    @pytest.mark.unit
+    def test_extract_json_truncated_no_complete_objects_raises(self) -> None:
+        """Truncation before any complete object raises JSONDecodeError."""
+        truncated = '{"agents": [{"archetype": "regul'
+        with pytest.raises(json.JSONDecodeError):
+            _extract_json(truncated)
+
+    @pytest.mark.unit
+    def test_extract_json_valid_json_not_affected(self) -> None:
+        """Valid JSON passes through without modification."""
+        valid = '{"agents": [{"archetype": "a"}, {"archetype": "b"}]}'
+        result = _extract_json(valid)
+        assert len(result["agents"]) == 2
 
 
 class TestMockLLMClient:
