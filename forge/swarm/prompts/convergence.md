@@ -25,7 +25,7 @@ You MUST output valid JSON:
 {
   "final_position": "support|oppose|conditional|neutral",
   "confidence": 0-100,
-  "conviction_delta": -100 to +100,
+  "conviction_delta": 0 to 100,
   "changed_mind": true|false,
   "reasoning": "your final synthesis (2-3 sentences)",
   "key_insight": "the most important takeaway from this debate"

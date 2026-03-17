@@ -12,7 +12,7 @@ import pytest
 from forge.db.models import AgentPersona, Simulation
 from forge.db.store import Store
 from forge.llm.client import CompletionResponse, MockLLMClient, ParseError
-from forge.swarm.arena import SimulationResult, run_simulation
+from forge.swarm.arena import SimulationResult, _collect_turns, run_simulation
 from forge.swarm.consensus import ConsensusReport
 from forge.swarm.population import SeedMaterial
 
@@ -352,3 +352,75 @@ class TestArenaOnTurnCallback:
             seed, two_agents, mock_llm, db, rounds=3, max_concurrent=1,
         )
         assert result.simulation.status == "complete"
+
+
+@pytest.mark.unit
+class TestArenaOnRoundCompleteCallback:
+    """Tests for the on_round_complete callback."""
+
+    @pytest.fixture
+    def seed(self) -> SeedMaterial:
+        return SeedMaterial(text="Test scenario for round callback")
+
+    @pytest.fixture
+    def two_agents(self, db: Store) -> list[AgentPersona]:
+        return [
+            _make_persona(db, "optimist", "Alice"),
+            _make_persona(db, "pessimist", "Bob"),
+        ]
+
+    def _queue_responses(self, mock_llm, agent_count: int):
+        responses = []
+        for _ in range(agent_count):
+            responses.append(_round1_response())
+        for _ in range(agent_count):
+            responses.append(_round2_response())
+        for _ in range(agent_count):
+            responses.append(_round3_response())
+        mock_llm.set_responses(responses)
+
+    async def test_on_round_complete_called_per_round(
+        self, seed: SeedMaterial, two_agents, mock_llm, db: Store,
+    ):
+        """on_round_complete fires once per round with turns and population."""
+        self._queue_responses(mock_llm, 2)
+        received = []
+
+        def on_round_complete(round_num, turns, pop, prev_turns=None):
+            received.append((round_num, len(turns), len(pop)))
+
+        await run_simulation(
+            seed, two_agents, mock_llm, db,
+            rounds=3, max_concurrent=1, on_round_complete=on_round_complete,
+        )
+        assert len(received) == 3
+        assert received[0] == (1, 2, 2)
+        assert received[1] == (2, 2, 2)
+        assert received[2] == (3, 2, 2)
+
+
+@pytest.mark.unit
+class TestCollectTurnsErrorMessages:
+    """Tests that _collect_turns logs human-readable agent names, not raw IDs."""
+
+    def test_collect_turns_logs_agent_name_on_failure(
+        self, db: Store, caplog,
+    ):
+        """Failed agent warning includes human-readable name and archetype."""
+        agent = _make_persona(db, "tech_optimist", "Lena Moreau")
+        personas_map = {agent.id: agent}
+        error = ParseError("truncated json", ValueError("bad"))
+        results = [error]
+
+        import logging
+        with caplog.at_level(logging.WARNING):
+            turns = _collect_turns(
+                results, [agent], round_num=3,
+                personas_map=personas_map,
+            )
+
+        assert len(turns) == 0
+        assert "Lena Moreau" in caplog.text
+        assert "tech_optimist" in caplog.text
+        # Should NOT contain raw ULID
+        assert agent.id not in caplog.text

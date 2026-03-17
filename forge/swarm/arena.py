@@ -23,6 +23,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _agent_display_name(
+    agent: AgentPersona,
+    personas_map: dict[str, AgentPersona] | None = None,
+) -> str:
+    """Return a human-readable name for an agent persona."""
+    try:
+        persona = json.loads(agent.persona_json)
+        name = persona.get("name", agent.archetype)
+        return f"{name} ({agent.archetype})"
+    except (json.JSONDecodeError, TypeError):
+        return agent.archetype
+
+
 def _collect_turns(
     results: list,
     population: list[AgentPersona],
@@ -34,9 +47,10 @@ def _collect_turns(
     turns: list[SimulationTurn] = []
     for i, result in enumerate(results):
         if isinstance(result, BaseException):
+            display = _agent_display_name(population[i])
             logger.warning(
                 "Agent %s failed in round %d: %s",
-                population[i].id, round_num, result,
+                display, round_num, type(result).__name__,
             )
         else:
             turns.append(result)
@@ -66,6 +80,7 @@ async def run_simulation(
     rounds: int = 3,
     max_concurrent: int = 2,
     on_turn: Callable | None = None,
+    on_round_complete: Callable | None = None,
 ) -> SimulationResult:
     """Run a multi-round swarm simulation.
 
@@ -105,6 +120,8 @@ async def run_simulation(
             on_turn=on_turn, personas_map=personas_map,
         )
         all_turns.extend(r1_turns)
+        if on_round_complete:
+            on_round_complete(1, r1_turns, population)
 
         # Round 2: Interactions (if rounds >= 2)
         r2_turns: list[SimulationTurn] = []
@@ -114,6 +131,8 @@ async def run_simulation(
                 on_turn=on_turn,
             )
             all_turns.extend(r2_turns)
+            if on_round_complete:
+                on_round_complete(2, r2_turns, population, r1_turns)
 
         # Round 3: Convergence (if rounds >= 3)
         if rounds >= 3:
@@ -122,6 +141,8 @@ async def run_simulation(
                 on_turn=on_turn, personas_map=personas_map,
             )
             all_turns.extend(r3_turns)
+            if on_round_complete:
+                on_round_complete(3, r3_turns, population, r2_turns)
 
         # Extract consensus
         consensus = extract_consensus(all_turns, personas_map)

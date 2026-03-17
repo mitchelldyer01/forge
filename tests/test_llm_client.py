@@ -410,6 +410,39 @@ class TestExtractJsonTruncated:
         assert len(result["agents"]) == 2
 
 
+class TestExtractJsonPlusPrefix:
+    """Tests for _extract_json stripping invalid + prefix from JSON numbers."""
+
+    @pytest.mark.unit
+    def test_extract_json_strips_plus_prefix_from_numbers(self) -> None:
+        """JSON with +10 should parse as 10 (+ prefix is invalid JSON)."""
+        text = '{"conviction_delta": +10, "confidence": +75}'
+        result = _extract_json(text)
+        assert result == {"conviction_delta": 10, "confidence": 75}
+
+    @pytest.mark.unit
+    def test_extract_json_preserves_negative_numbers(self) -> None:
+        """Negative numbers like -10 must not be affected by + stripping."""
+        text = '{"conviction_delta": -10, "confidence": 75}'
+        result = _extract_json(text)
+        assert result == {"conviction_delta": -10, "confidence": 75}
+
+    @pytest.mark.unit
+    def test_extract_json_preserves_plus_in_strings(self) -> None:
+        """Plus signs inside string values must not be stripped."""
+        text = '{"reasoning": "net +5% improvement", "delta": +10}'
+        result = _extract_json(text)
+        assert result["reasoning"] == "net +5% improvement"
+        assert result["delta"] == 10
+
+    @pytest.mark.unit
+    def test_extract_json_handles_plus_zero(self) -> None:
+        """Edge case: +0 should parse as 0."""
+        text = '{"delta": +0}'
+        result = _extract_json(text)
+        assert result["delta"] == 0
+
+
 class TestParseErrorMessage:
     """ParseError should include actionable diagnostic information."""
 

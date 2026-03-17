@@ -68,6 +68,18 @@ def _repair_truncated_json(text: str) -> dict:
     return json.loads(repaired)
 
 
+def _sanitize_plus_prefix(text: str) -> str:
+    """Strip invalid + prefix from JSON numeric values.
+
+    JSON does not allow +10; only -10 or 10 are valid.  LLMs frequently
+    produce +N when prompted with ranges like "-100 to +100".
+
+    Only strips + that appears after a JSON value separator (: , [) followed
+    by optional whitespace, so + inside string values is preserved.
+    """
+    return re.sub(r'(?<=[:,\[])\s*\+(\d)', r' \1', text)
+
+
 def _extract_json(text: str) -> dict:
     """Extract JSON from text, handling thinking mode and truncated output.
 
@@ -77,6 +89,8 @@ def _extract_json(text: str) -> dict:
     """
     # Strip think blocks
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    # Sanitize invalid + prefix on numbers (e.g. +10 → 10)
+    cleaned = _sanitize_plus_prefix(cleaned)
     # Try parsing the cleaned text directly
     try:
         return json.loads(cleaned)
