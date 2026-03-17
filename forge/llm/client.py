@@ -154,8 +154,10 @@ class MockLLMClient:
 
     _responses: list[dict] = field(default_factory=list)
     _errors: list[int] = field(default_factory=list)
+    _parse_errors: list[bool] = field(default_factory=list)
     call_count: int = 0
     last_messages: list[dict] = field(default_factory=list)
+    last_max_tokens: int = 0
 
     def set_response(self, json_dict: dict) -> None:
         """Set a single response for the next call."""
@@ -169,6 +171,10 @@ class MockLLMClient:
         """Make the next call raise an HTTP error."""
         self._errors = [status_code]
 
+    def set_parse_error(self) -> None:
+        """Make the next call raise a ParseError (simulates truncated JSON)."""
+        self._parse_errors = [True]
+
     async def complete(
         self,
         messages: list[dict],
@@ -180,6 +186,11 @@ class MockLLMClient:
         """Return queued response or raise queued error."""
         self.call_count += 1
         self.last_messages = messages
+        self.last_max_tokens = max_tokens
+
+        if self._parse_errors:
+            self._parse_errors.pop(0)
+            raise ParseError("", json.JSONDecodeError("Truncated", "", 0))
 
         if self._errors:
             status_code = self._errors.pop(0)

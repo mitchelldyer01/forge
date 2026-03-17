@@ -148,3 +148,23 @@ class TestGeneratePopulation:
         personas = await generate_population(seed, mock_llm, db, count=1)
         assert len(personas) == 1
         assert personas[0].archetype == "unknown"
+
+    async def test_generate_population_requests_sufficient_max_tokens(
+        self, seed: SeedMaterial, mock_llm, db: Store,
+    ):
+        """generate_population requests enough max_tokens for large populations."""
+        mock_llm.set_response({"agents": []})
+        await generate_population(seed, mock_llm, db, count=30)
+        # MockLLMClient stores last call's kwargs — check max_tokens was raised
+        assert mock_llm.last_max_tokens >= 4096
+
+    async def test_generate_population_handles_parse_error(
+        self, seed: SeedMaterial, db: Store,
+    ):
+        """When LLM returns truncated JSON (ParseError), return empty list gracefully."""
+        from forge.llm.client import MockLLMClient
+
+        mock = MockLLMClient()
+        mock.set_parse_error()  # Simulates truncated JSON → ParseError
+        personas = await generate_population(seed, mock, db, count=10)
+        assert personas == []
