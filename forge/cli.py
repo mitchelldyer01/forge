@@ -368,7 +368,8 @@ def turns(
 
     if md:
         from forge.cli_markdown import render_turns_markdown
-        typer.echo(render_turns_markdown(rows, sim))
+        predictions = store.list_predictions(simulation_id=sim.id)
+        typer.echo(render_turns_markdown(rows, sim, predictions=predictions))
         return
 
     output_console = Console() if pager else console
@@ -505,8 +506,12 @@ def simulate(
 
     if md:
         from forge.cli_markdown import render_turns_markdown
-        rows = store.list_turns_with_agent(result["simulation"].id)
-        typer.echo(render_turns_markdown(rows, result["simulation"]))
+        sim_id = result["simulation"].id
+        rows = store.list_turns_with_agent(sim_id)
+        predictions = store.list_predictions(simulation_id=sim_id)
+        typer.echo(render_turns_markdown(
+            rows, result["simulation"], predictions=predictions,
+        ))
         return
 
     _render_simulation(result)

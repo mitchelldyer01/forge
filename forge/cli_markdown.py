@@ -7,7 +7,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from forge.db.models import Simulation
+    from forge.db.models import Prediction, Simulation
 
 ROUND_LABELS = {1: "Initial Reactions", 2: "Debate", 3: "Final Positions"}
 
@@ -169,12 +169,81 @@ def _render_consensus(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def render_turns_markdown(rows: list[dict], sim: Simulation) -> str:
+def _render_scenario(sim: Simulation) -> str:
+    """Render the scenario seed material."""
+    lines = ["## Scenario", "", sim.seed_text]
+    if sim.seed_context:
+        lines.append("")
+        lines.append(f"**Context:** {sim.seed_context}")
+    return "\n".join(lines)
+
+
+def _render_agent_roster(rows: list[dict]) -> str:
+    """Render unique agent personas from the turn rows."""
+    seen: dict[str, dict] = {}
+    for row in rows:
+        archetype = row.get("archetype", "unknown")
+        if archetype in seen:
+            continue
+        persona = _safe_parse(row.get("persona_json"))
+        seen[archetype] = persona
+
+    if not seen:
+        return ""
+
+    lines = ["## Agent Roster", ""]
+    for archetype, persona in seen.items():
+        parts = [f"**{archetype}**"]
+        name = persona.get("name")
+        if name:
+            parts[0] += f" ({name})"
+        traits = []
+        bg = persona.get("background")
+        if bg:
+            traits.append(f"Background: {bg}")
+        expertise = persona.get("expertise")
+        if expertise and isinstance(expertise, list):
+            traits.append(f"Expertise: {', '.join(expertise)}")
+        style = persona.get("reasoning_style")
+        if style:
+            traits.append(f"Style: {style}")
+        if traits:
+            parts.append("; ".join(traits))
+        lines.append("- " + " — ".join(parts))
+
+    return "\n".join(lines)
+
+
+def _render_predictions(predictions: list[Prediction]) -> str:
+    """Render predictions extracted from the simulation."""
+    if not predictions:
+        return ""
+
+    lines = ["## Predictions", ""]
+    for p in predictions:
+        status = p.resolved_as or "pending"
+        deadline = p.resolution_deadline or "no deadline"
+        lines.append(
+            f"- **{p.claim}** ({p.confidence}% confidence, "
+            f"deadline: {deadline}, status: {status})"
+        )
+    return "\n".join(lines)
+
+
+def render_turns_markdown(
+    rows: list[dict],
+    sim: Simulation,
+    *,
+    predictions: list[Prediction] | None = None,
+) -> str:
     """Render simulation turns as structured markdown for LLM analysis."""
     sections = [_render_header(sim)]
+    sections.append(_render_scenario(sim))
 
     if not rows:
-        return sections[0]
+        return "\n\n".join(s for s in sections if s)
+
+    sections.append(_render_agent_roster(rows))
 
     # Group by round
     by_round: dict[int, list[dict]] = defaultdict(list)
@@ -188,5 +257,8 @@ def render_turns_markdown(rows: list[dict], sim: Simulation) -> str:
             sections.append(_render_turn(row, rnd))
 
     sections.append(_render_consensus(rows))
+
+    if predictions:
+        sections.append(_render_predictions(predictions))
 
     return "\n\n".join(s for s in sections if s)

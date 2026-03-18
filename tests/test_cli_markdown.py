@@ -238,3 +238,62 @@ class TestRenderTurnsMarkdown:
         result = render_turns_markdown(rows, _make_sim())
         assert "**Confidence basis:**" in result
         assert "MiFID II" in result
+
+    def test_render_turns_markdown_includes_scenario_section(self):
+        """Scenario section shows seed text and context."""
+        from forge.cli_markdown import render_turns_markdown
+
+        sim = _make_sim(seed_context="European Commission proposal for AI Act extension")
+        result = render_turns_markdown(_sample_rows(), sim)
+        assert "## Scenario" in result
+        assert "What if the EU regulates AI agents?" in result
+        assert "European Commission proposal" in result
+
+    def test_render_turns_markdown_includes_agent_roster(self):
+        """Agent roster section lists unique archetypes with persona traits."""
+        from forge.cli_markdown import render_turns_markdown
+
+        rows = _sample_rows()
+        # Enrich persona_json with traits
+        for row in rows:
+            if row["archetype"] == "tech_optimist":
+                row["persona_json"] = json.dumps({
+                    "name": "Alice Chen",
+                    "background": "AI startup founder",
+                    "expertise": ["machine_learning", "product"],
+                    "reasoning_style": "data-driven",
+                })
+        result = render_turns_markdown(rows, _make_sim())
+        assert "## Agent Roster" in result
+        assert "tech_optimist" in result
+        assert "AI startup founder" in result
+
+    def test_render_turns_markdown_includes_predictions(self):
+        """Predictions section lists claims extracted from the simulation."""
+        from forge.cli_markdown import render_turns_markdown
+        from forge.db.models import Prediction
+
+        predictions = [
+            Prediction(
+                id="p_TEST1",
+                simulation_id="s_01TESTID1234567890",
+                claim="AI regulation will reduce VC funding by 20%",
+                confidence=70,
+                consensus_strength=0.8,
+                resolution_deadline="2027-01-01",
+                created_at="2026-03-18T10:00:00Z",
+            ),
+        ]
+        result = render_turns_markdown(
+            _sample_rows(), _make_sim(), predictions=predictions,
+        )
+        assert "## Predictions" in result
+        assert "AI regulation will reduce VC funding by 20%" in result
+        assert "70%" in result
+
+    def test_render_turns_markdown_no_predictions_skips_section(self):
+        """No predictions means no predictions section."""
+        from forge.cli_markdown import render_turns_markdown
+
+        result = render_turns_markdown(_sample_rows(), _make_sim())
+        assert "## Predictions" not in result
