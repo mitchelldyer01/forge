@@ -279,6 +279,16 @@ class Store:
             return None
         return Simulation(**dict(row))
 
+    def find_simulation_by_prefix(self, prefix: str) -> Simulation | None:
+        """Find a simulation by ID prefix (for partial ID lookups)."""
+        row = self.conn.execute(
+            "SELECT * FROM simulations WHERE id LIKE ? ORDER BY id LIMIT 1",
+            (prefix + "%",),
+        ).fetchone()
+        if row is None:
+            return None
+        return Simulation(**dict(row))
+
     def update_simulation(self, s_id: str, **kwargs: object) -> Simulation | None:
         existing = self.get_simulation(s_id)
         if existing is None:

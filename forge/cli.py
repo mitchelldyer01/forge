@@ -327,7 +327,7 @@ def turns(
             return
 
         table = Table(title="Simulations")
-        table.add_column("ID", style="dim")
+        table.add_column("ID", style="dim", no_wrap=True)
         table.add_column("Scenario", max_width=50)
         table.add_column("Agents", justify="right")
         table.add_column("Rounds", justify="right")
@@ -346,14 +346,14 @@ def turns(
         console.print(table)
         return
 
-    # Verify simulation exists
-    sim = store.get_simulation(simulation_id)
+    # Verify simulation exists (support prefix matching)
+    sim = store.get_simulation(simulation_id) or store.find_simulation_by_prefix(simulation_id)
     if sim is None:
         console.print(f"[red]Simulation {simulation_id} not found.[/red]")
         raise typer.Exit(code=1)
 
     rows = store.list_turns_with_agent(
-        simulation_id, round=round_num, archetype=agent,
+        sim.id, round=round_num, archetype=agent,
     )
 
     if not rows:
