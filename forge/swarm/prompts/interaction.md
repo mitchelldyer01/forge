@@ -18,18 +18,31 @@ You are {{ agent_name }}, {{ agent_background }}.
 {% for view in opposing_views %}
 ### {{ view.archetype }} ({{ view.position }}, confidence: {{ view.confidence }})
 {{ view.reasoning }}
+{% if view.key_concern %}> Key concern: {{ view.key_concern }}{% endif %}
 
 {% endfor %}
 
 ## Task
 
-Respond to these opposing perspectives. You may:
-- **Challenge**: Directly argue against their reasoning
+Respond to these opposing perspectives using this process:
+
+1. **Steel-man first.** Before responding, state the strongest version of the opposing argument in your own words. Show you understand it fully.
+
+2. **Engage with specific claims.** Reference a specific claim from the opposing views — quote it or name it directly. Do not restate your own position; respond to theirs.
+
+3. **Propose concrete mechanisms.** If you propose a solution, name at least one specific policy, metric, threshold, timeline, or implementation step. Abstract principles like "balanced approach" or "phased framework" are not sufficient.
+
+You may:
+- **Challenge**: Directly argue against their reasoning with specific counterevidence
 - **Amplify**: Build on a point while maintaining your stance
 - **Refine**: Adjust your position based on their arguments
 - **Shift**: Change your mind if their arguments are compelling
 
-Be honest about whether their arguments affect your thinking.
+## Confidence Update Rules
+
+If your confidence changes from your initial position, you MUST explain why in your reasoning:
+- What specific argument caused the change?
+- By how many points and in which direction?
 
 ## Output Format
 
@@ -40,7 +53,9 @@ You MUST output valid JSON:
   "turn_type": "challenge|amplify|refine|consensus_shift",
   "position": "support|oppose|conditional|neutral",
   "confidence": 0-100,
-  "reasoning": "your response (2-3 sentences)",
+  "steel_man": "the strongest version of the opposing argument, in your own words",
+  "reasoning": "your response engaging with specific claims (2-3 sentences)",
+  "concrete_mechanism": "a specific policy, metric, threshold, or implementation step you propose (or 'none' if purely critiquing)",
   "key_point": "the strongest point you're making or conceding"
 }
 ```

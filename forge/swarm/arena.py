@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from forge.swarm.consensus import ConsensusReport, extract_consensus
+from forge.swarm.debate_digest import build_debate_digest
 from forge.swarm.interaction import select_interactions
 from forge.swarm.prompts import load_swarm_prompt
 
@@ -303,6 +304,7 @@ async def _run_round2(
                 "position": opp_data.get("position", "neutral"),
                 "confidence": opp_data.get("confidence", 50),
                 "reasoning": opp_data.get("reasoning", ""),
+                "key_concern": opp_data.get("key_concern", ""),
             })
 
         my_data = _safe_json(my_turn.content)
@@ -373,6 +375,9 @@ async def _run_round3(
         r2_data = _safe_json(r2_turn.content) if r2_turn else {}
 
         persona = json.loads(agent.persona_json)
+        digest = build_debate_digest(
+            r2_turns, agent.id, personas_map or {},
+        )
         prompt = load_swarm_prompt(
             "convergence",
             agent_name=persona.get("name", agent.archetype),
@@ -382,6 +387,7 @@ async def _run_round3(
             r1_confidence=str(r1_data.get("confidence", 50)),
             r1_reasoning=r1_data.get("reasoning", ""),
             r2_summary=r2_data.get("reasoning", "No interaction recorded."),
+            debate_digest=digest,
         )
 
         async with sem:

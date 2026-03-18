@@ -9,7 +9,7 @@ import json
 import pytest
 
 from forge.db.models import AgentPersona, SimulationTurn
-from forge.swarm.interaction import select_interactions
+from forge.swarm.interaction import compute_novelty_score, select_interactions
 
 
 def _make_persona(
@@ -47,15 +47,20 @@ def _make_turn(
     position: str = "support",
     confidence: int = 70,
     round: int = 1,
+    reasoning: str = "test",
+    key_concern: str = "",
 ) -> SimulationTurn:
     """Helper to create a SimulationTurn."""
+    content = {"position": position, "reasoning": reasoning}
+    if key_concern:
+        content["key_concern"] = key_concern
     return SimulationTurn(
         id=st_id,
         simulation_id="s_test",
         round=round,
         agent_persona_id=agent_persona_id,
         turn_type="reaction",
-        content=json.dumps({"position": position, "reasoning": "test"}),
+        content=json.dumps(content),
         position=position,
         confidence=confidence,
         created_at="2026-01-01T00:00:00+00:00",
@@ -194,3 +199,73 @@ class TestSelectInteractions:
 
         selected = select_interactions(agent, my_turn, [], {}, count=3)
         assert selected == []
+
+    def test_select_picks_novel_argument(self):
+        """Novel argument is selected over a non-novel high-contrarian turn."""
+        agent = _make_persona("ap_me", "mainstream")
+        my_turn = _make_turn("st_me", "ap_me", position="support")
+
+        # Common reasoning shared by most agents
+        common = "regulation will balance innovation with accountability"
+        # Novel reasoning with unique vocabulary
+        novel = "energy consumption of data centers will increase costs by 30%"
+
+        turns = [
+            my_turn,
+            _make_turn("st_opp1", "ap_opp1", position="oppose",
+                        confidence=70, reasoning=common),
+            _make_turn("st_opp2", "ap_opp2", position="oppose",
+                        confidence=60, reasoning=common),
+            _make_turn("st_novel", "ap_novel", position="oppose",
+                        confidence=50, reasoning=novel,
+                        key_concern="energy infrastructure strain"),
+        ]
+        personas = {
+            "ap_me": agent,
+            "ap_opp1": _make_persona("ap_opp1", "conservative", contrarian=0.9),
+            "ap_opp2": _make_persona("ap_opp2", "moderate", contrarian=0.5),
+            "ap_novel": _make_persona("ap_novel", "environmentalist", contrarian=0.1),
+        }
+
+        selected = select_interactions(agent, my_turn, turns, personas, count=3)
+        selected_ids = {t.id for t in selected}
+        # The novel argument should be included despite low confidence/contrarian
+        assert "st_novel" in selected_ids
+
+
+@pytest.mark.unit
+class TestComputeNoveltyScore:
+    def test_unique_words_score_higher(self):
+        """A turn with unusual vocabulary scores higher than common vocabulary."""
+        common = "regulation will balance innovation with accountability"
+        novel = "energy consumption of data centers will increase electricity costs"
+
+        common_turns = [
+            _make_turn(f"st_{i}", f"ap_{i}", reasoning=common)
+            for i in range(5)
+        ]
+        novel_turn = _make_turn("st_novel", "ap_novel", reasoning=novel)
+        all_turns = common_turns + [novel_turn]
+
+        novel_score = compute_novelty_score(novel_turn, all_turns)
+        common_score = compute_novelty_score(common_turns[0], all_turns)
+        assert novel_score > common_score
+
+    def test_empty_reasoning_returns_zero(self):
+        """Turn with empty reasoning gets a novelty score of 0.0."""
+        turn = _make_turn("st_empty", "ap_empty", reasoning="")
+        all_turns = [
+            turn,
+            _make_turn("st_other", "ap_other", reasoning="some content here"),
+        ]
+        assert compute_novelty_score(turn, all_turns) == 0.0
+
+    def test_stop_words_ignored(self):
+        """Common stop words don't inflate novelty scores."""
+        # Turn with only stop words
+        stop_turn = _make_turn("st_stop", "ap_stop",
+                               reasoning="the and is of to in for")
+        other = _make_turn("st_other", "ap_other",
+                           reasoning="quantum computing revolutionizes cryptography")
+        all_turns = [stop_turn, other]
+        assert compute_novelty_score(stop_turn, all_turns) == 0.0

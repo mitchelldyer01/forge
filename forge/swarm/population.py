@@ -74,6 +74,40 @@ async def _generate_batch(
     return []  # unreachable but satisfies type checker
 
 
+def _normalize_archetype(archetype: str) -> str:
+    """Normalize archetype for deduplication: lowercase, collapse whitespace."""
+    return archetype.strip().lower().replace(" ", "_")
+
+
+def _deduplicate_agents(agents: list[dict]) -> list[dict]:
+    """Remove duplicate archetypes, keeping the first occurrence.
+
+    Two agents are considered duplicates if they share the same normalized
+    archetype string. This prevents cross-batch duplication when the LLM
+    ignores the diversity constraint.
+
+    Args:
+        agents: Raw agent dicts from LLM batches.
+
+    Returns:
+        Deduplicated list of agent dicts.
+    """
+    seen: set[str] = set()
+    result: list[dict] = []
+    for agent in agents:
+        archetype = agent.get("archetype", "")
+        if not archetype:
+            result.append(agent)
+            continue
+        key = _normalize_archetype(archetype)
+        if key in seen:
+            logger.warning("Deduplicating agent: %s — duplicate archetype", archetype)
+            continue
+        seen.add(key)
+        result.append(agent)
+    return result
+
+
 async def generate_population(
     seed: SeedMaterial,
     llm: object,
@@ -110,10 +144,11 @@ async def generate_population(
     ]
     batch_results = await asyncio.gather(*tasks)
 
-    # Flatten and persist
+    # Flatten and deduplicate across batches
     all_agents: list[dict] = []
     for agents in batch_results:
         all_agents.extend(agents)
+    all_agents = _deduplicate_agents(all_agents)
 
     personas: list[AgentPersona] = []
     for agent in all_agents:

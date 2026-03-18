@@ -4,12 +4,30 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from collections import Counter
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from forge.db.models import AgentPersona, SimulationTurn
 
 logger = logging.getLogger(__name__)
+
+# Words too common to signal novelty — stop words + domain-generic terms
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
+    "has", "have", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "can", "this", "that", "it", "not", "no",
+    "as", "if", "its", "their", "which", "while", "also", "both", "more",
+    "than", "such", "these", "those", "into", "over", "all", "any",
+    # Domain-generic terms that add no signal
+    "regulation", "innovation", "framework", "approach", "balance",
+    "risk", "ensure", "require", "without", "between", "through",
+    "must", "need", "like", "new", "way", "based", "well",
+})
+
+_WORD_RE = re.compile(r"[a-z]{3,}")
 
 
 def _parse_persona(persona_json: str) -> dict:
@@ -31,6 +49,44 @@ def _get_expertise(persona: dict) -> list[str]:
     return persona.get("expertise", [])
 
 
+def _extract_words(turn: SimulationTurn) -> list[str]:
+    """Extract meaningful words from a turn's reasoning and key_concern."""
+    try:
+        data = json.loads(turn.content)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    text = data.get("reasoning", "") + " " + data.get("key_concern", "")
+    return [w for w in _WORD_RE.findall(text.lower()) if w not in _STOP_WORDS]
+
+
+def compute_novelty_score(
+    turn: SimulationTurn,
+    all_turns: list[SimulationTurn],
+) -> float:
+    """Score how unique a turn's reasoning is compared to all other turns.
+
+    Returns a float 0.0-1.0 where higher means more novel vocabulary.
+    """
+    my_words = _extract_words(turn)
+    if not my_words:
+        return 0.0
+
+    # Count how many other turns contain each word
+    other_turns = [t for t in all_turns if t.id != turn.id]
+    if not other_turns:
+        return 1.0
+
+    word_doc_count: Counter[str] = Counter()
+    for other in other_turns:
+        other_words = set(_extract_words(other))
+        for w in other_words:
+            word_doc_count[w] += 1
+
+    threshold = len(other_turns) * 0.2
+    rare_count = sum(1 for w in my_words if word_doc_count[w] < threshold)
+    return rare_count / len(my_words)
+
+
 def select_interactions(
     agent: AgentPersona,
     agent_turn: SimulationTurn,
@@ -42,37 +98,24 @@ def select_interactions(
 
     Selection priority:
     1. Strongest opposing argument (highest confidence from other side)
-    2. Most contrarian perspective (highest contrarian_tendency on other side)
+    2. Most novel opposing argument (highest novelty score)
     3. Domain expert disagreement (agent with expertise who disagrees)
 
     Falls back to highest contrarian_tendency regardless of position
     when no opposing views exist.
-
-    Args:
-        agent: The agent who will respond.
-        agent_turn: The agent's Round 1 turn.
-        all_round1_turns: All Round 1 turns from all agents.
-        all_personas: Dict mapping persona ID to AgentPersona.
-        count: Maximum number of interactions to select.
-
-    Returns:
-        List of SimulationTurns for the agent to respond to.
     """
     if not all_round1_turns:
         return []
 
     my_position = agent_turn.position
-    # Exclude self
     other_turns = [t for t in all_round1_turns if t.agent_persona_id != agent.id]
 
     if not other_turns:
         return []
 
-    # Split into opposing and same-position
     opposing = [t for t in other_turns if t.position != my_position]
 
     if not opposing:
-        # Fallback: no opposing views, pick most contrarian regardless
         return _select_by_contrarian(other_turns, all_personas, count)
 
     selected: list[SimulationTurn] = []
@@ -86,25 +129,23 @@ def select_interactions(
     if len(selected) >= count:
         return selected[:count]
 
-    # 2. Most contrarian opposing agent
-    remaining_opposing = [t for t in opposing if t.id not in used_ids]
-    if remaining_opposing:
-        most_contrarian = max(
-            remaining_opposing,
-            key=lambda t: _get_contrarian_tendency(
-                _parse_persona(all_personas[t.agent_persona_id].persona_json)
-            ) if t.agent_persona_id in all_personas else 0.0,
+    # 2. Most novel opposing argument
+    remaining = [t for t in opposing if t.id not in used_ids]
+    if remaining:
+        most_novel = max(
+            remaining,
+            key=lambda t: compute_novelty_score(t, all_round1_turns),
         )
-        selected.append(most_contrarian)
-        used_ids.add(most_contrarian.id)
+        selected.append(most_novel)
+        used_ids.add(most_novel.id)
 
     if len(selected) >= count:
         return selected[:count]
 
     # 3. Domain expert disagreement
-    remaining_opposing = [t for t in opposing if t.id not in used_ids]
-    if remaining_opposing:
-        expert = _find_domain_expert(remaining_opposing, all_personas)
+    remaining = [t for t in opposing if t.id not in used_ids]
+    if remaining:
+        expert = _find_domain_expert(remaining, all_personas)
         if expert:
             selected.append(expert)
             used_ids.add(expert.id)
@@ -112,9 +153,9 @@ def select_interactions(
     if len(selected) >= count:
         return selected[:count]
 
-    # Fill remaining slots from any unused opposing turns
-    remaining_opposing = [t for t in opposing if t.id not in used_ids]
-    for turn in remaining_opposing:
+    # Fill remaining slots from unused opposing turns
+    remaining = [t for t in opposing if t.id not in used_ids]
+    for turn in remaining:
         if len(selected) >= count:
             break
         selected.append(turn)

@@ -11,6 +11,7 @@ from forge.db.store import Store
 from forge.swarm.population import (
     BATCH_SIZE,
     SeedMaterial,
+    _deduplicate_agents,
     generate_population,
 )
 
@@ -182,6 +183,56 @@ class TestGeneratePopulation:
 
 
 @pytest.mark.unit
+class TestDeduplicateAgents:
+    """Tests for _deduplicate_agents — post-generation archetype dedup."""
+
+    def test_deduplicate_removes_same_archetype(self):
+        """Two agents with same archetype are deduplicated to one."""
+        agents = [
+            {"archetype": "retail_investor", "name": "Alice",
+             "initial_stance": "Regulation helps investors"},
+            {"archetype": "retail_investor", "name": "Bob",
+             "initial_stance": "Regulation protects consumers"},
+        ]
+        result = _deduplicate_agents(agents)
+        assert len(result) == 1
+        assert result[0]["name"] == "Alice"
+
+    def test_deduplicate_keeps_different_archetypes(self):
+        """Agents with different archetypes are all kept."""
+        agents = [
+            {"archetype": "retail_investor", "name": "Alice"},
+            {"archetype": "policy_analyst", "name": "Bob"},
+            {"archetype": "tech_optimist", "name": "Carol"},
+        ]
+        result = _deduplicate_agents(agents)
+        assert len(result) == 3
+
+    def test_deduplicate_normalizes_case_and_whitespace(self):
+        """Archetype comparison is case-insensitive and whitespace-normalized."""
+        agents = [
+            {"archetype": "Retail_Investor", "name": "Alice"},
+            {"archetype": "retail_investor", "name": "Bob"},
+            {"archetype": "RETAIL_INVESTOR", "name": "Carol"},
+        ]
+        result = _deduplicate_agents(agents)
+        assert len(result) == 1
+
+    def test_deduplicate_empty_list(self):
+        """Empty input returns empty output."""
+        assert _deduplicate_agents([]) == []
+
+    def test_deduplicate_missing_archetype(self):
+        """Agents without archetype key are kept (each treated as unique)."""
+        agents = [
+            {"name": "Alice"},
+            {"archetype": "analyst", "name": "Bob"},
+        ]
+        result = _deduplicate_agents(agents)
+        assert len(result) == 2
+
+
+@pytest.mark.unit
 class TestGeneratePopulationBatching:
     """Tests for batched population generation."""
 
@@ -275,6 +326,34 @@ class TestGeneratePopulationBatching:
         # Should still have the agents from the first batch
         assert len(personas) >= 1
         assert personas[0].archetype == "analyst"
+
+    async def test_generate_population_deduplicates_across_batches(
+        self, seed: SeedMaterial, mock_llm, db: Store,
+    ):
+        """Duplicate archetypes across batches are removed before persisting."""
+        count = BATCH_SIZE * 2
+        batch_responses = [
+            {"agents": [
+                {"archetype": "retail_investor", "name": "Alice",
+                 "initial_stance": "Regulation helps investors"},
+                {"archetype": "policy_analyst", "name": "Bob",
+                 "initial_stance": "Regulation is needed"},
+            ]},
+            {"agents": [
+                {"archetype": "retail_investor", "name": "Carol",
+                 "initial_stance": "Regulation protects consumers"},
+                {"archetype": "tech_optimist", "name": "Dave",
+                 "initial_stance": "Innovation will thrive"},
+            ]},
+        ]
+        mock_llm.set_responses(batch_responses)
+        personas = await generate_population(seed, mock_llm, db, count=count)
+        archetypes = [p.archetype for p in personas]
+        # retail_investor appears in both batches with similar stance — deduped
+        assert archetypes.count("retail_investor") == 1
+        # unique archetypes kept
+        assert "policy_analyst" in archetypes
+        assert "tech_optimist" in archetypes
 
     async def test_generate_population_retries_failed_batch(
         self, seed: SeedMaterial, db: Store,
