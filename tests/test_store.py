@@ -517,6 +517,25 @@ class TestSimulationCRUD:
         with pytest.raises(ValueError):
             db.save_simulation(mode="scenario", seed_text="")
 
+    def test_store_find_simulation_by_prefix_exact(self, db: Store):
+        """Full ID matches via prefix search."""
+        s = db.save_simulation(mode="scenario", seed_text="Test")
+        found = db.find_simulation_by_prefix(s.id)
+        assert found is not None
+        assert found.id == s.id
+
+    def test_store_find_simulation_by_prefix_partial(self, db: Store):
+        """First 10 chars of ID resolve to the simulation."""
+        s = db.save_simulation(mode="scenario", seed_text="Test")
+        found = db.find_simulation_by_prefix(s.id[:10])
+        assert found is not None
+        assert found.id == s.id
+
+    def test_store_find_simulation_by_prefix_no_match(self, db: Store):
+        """Non-existent prefix returns None."""
+        found = db.find_simulation_by_prefix("s_ZZZZZZZZZZ")
+        assert found is None
+
 
 # ---------------------------------------------------------------------------
 # AgentPersona CRUD

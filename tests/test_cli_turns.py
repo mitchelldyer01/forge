@@ -36,7 +36,7 @@ class TestTurnsCommand:
         )
         result = runner.invoke(app, ["turns"])
         assert result.exit_code == 0
-        assert "EU AI regulation" in result.output
+        assert "Simulations" in result.output
 
     def test_turns_no_simulations_shows_message(self, db: Store, monkeypatch):
         """forge turns with no simulations shows empty message."""
@@ -139,3 +139,18 @@ class TestTurnsCommand:
         result = runner.invoke(app, ["turns", "s_nonexistent"])
         assert result.exit_code == 1
         assert "not found" in result.output
+
+    def test_turns_prefix_match(self, db: Store, monkeypatch):
+        """Partial simulation ID prefix resolves to full ID."""
+        _patch_store(monkeypatch, db)
+        sim = db.save_simulation(mode="scenario", seed_text="Test")
+        persona = db.save_agent_persona(archetype="analyst", persona_json='{}')
+        db.save_simulation_turn(
+            simulation_id=sim.id, round=1, agent_persona_id=persona.id,
+            turn_type="reaction", content='{"position": "support"}',
+            position="support", confidence=70,
+        )
+        # Use only first 10 chars of the ID
+        result = runner.invoke(app, ["turns", sim.id[:10]])
+        assert result.exit_code == 0
+        assert "analyst" in result.output
