@@ -96,6 +96,7 @@ class SimulationTurn(BaseModel):
     position: str | None = None
     confidence: int | None = None
     token_count: int | None = None
+    raw_content: str | None = None
     created_at: str
 
 

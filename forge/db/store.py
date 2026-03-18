@@ -372,6 +372,7 @@ class Store:
         position: str | None = None,
         confidence: int | None = None,
         token_count: int | None = None,
+        raw_content: str | None = None,
     ) -> SimulationTurn:
         if not content:
             raise ValueError("content must not be empty")
@@ -381,10 +382,12 @@ class Store:
         self.conn.execute(
             """INSERT INTO simulation_turns
                (id, simulation_id, round, agent_persona_id, turn_type, content,
-                responding_to_id, position, confidence, token_count, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                responding_to_id, position, confidence, token_count,
+                raw_content, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (st_id, simulation_id, round, agent_persona_id, turn_type, content,
-             responding_to_id, position, confidence, token_count, now),
+             responding_to_id, position, confidence, token_count,
+             raw_content, now),
         )
         self.conn.commit()
         return SimulationTurn(
@@ -392,7 +395,8 @@ class Store:
             agent_persona_id=agent_persona_id, turn_type=turn_type,
             content=content, responding_to_id=responding_to_id,
             position=position, confidence=confidence,
-            token_count=token_count, created_at=now,
+            token_count=token_count, raw_content=raw_content,
+            created_at=now,
         )
 
     def list_turns_by_simulation(
@@ -417,6 +421,34 @@ class Store:
             (simulation_id, agent_persona_id),
         ).fetchall()
         return [SimulationTurn(**dict(r)) for r in rows]
+
+    def list_turns_with_agent(
+        self,
+        simulation_id: str,
+        *,
+        round: int | None = None,
+        archetype: str | None = None,
+    ) -> list[dict]:
+        """List turns joined with agent persona info.
+
+        Returns list of dicts with turn fields + archetype + persona_json.
+        """
+        query = """
+            SELECT st.*, ap.archetype, ap.persona_json
+            FROM simulation_turns st
+            JOIN agent_personas ap ON st.agent_persona_id = ap.id
+            WHERE st.simulation_id = ?
+        """
+        params: list[object] = [simulation_id]
+        if round is not None:
+            query += " AND st.round = ?"
+            params.append(round)
+        if archetype is not None:
+            query += " AND ap.archetype LIKE ?"
+            params.append(f"%{archetype}%")
+        query += " ORDER BY st.round, st.created_at"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------
     # Prediction

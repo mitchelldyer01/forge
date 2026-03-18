@@ -171,11 +171,12 @@ class TestGeneratePopulation:
     async def test_generate_population_handles_parse_error(
         self, seed: SeedMaterial, db: Store,
     ):
-        """When LLM returns truncated JSON (ParseError), return empty list gracefully."""
+        """When LLM returns truncated JSON (ParseError) twice, return empty list."""
         from forge.llm.client import MockLLMClient
 
         mock = MockLLMClient()
-        mock.set_parse_error()  # Simulates truncated JSON → ParseError
+        # Queue two parse errors — first attempt + retry
+        mock._parse_errors = [True, True]
         personas = await generate_population(seed, mock, db, count=BATCH_SIZE)
         assert personas == []
 
@@ -273,4 +274,42 @@ class TestGeneratePopulationBatching:
         personas = await generate_population(seed, mock, db, count=count)
         # Should still have the agents from the first batch
         assert len(personas) >= 1
+        assert personas[0].archetype == "analyst"
+
+    async def test_generate_population_retries_failed_batch(
+        self, seed: SeedMaterial, db: Store,
+    ):
+        """A failed batch is retried once before giving up."""
+        import json
+
+        from forge.llm.client import (
+            CompletionResponse,
+            MockLLMClient,
+            ParseError,
+        )
+
+        mock = MockLLMClient()
+        call_counter = 0
+
+        async def retry_complete(messages, **kwargs):
+            nonlocal call_counter
+            call_counter += 1
+            if call_counter == 1:
+                # First call fails
+                raise ParseError("truncated", ValueError("bad"))
+            # Retry succeeds
+            data = {"agents": [
+                {"archetype": "analyst", "name": "Bob"},
+            ]}
+            return CompletionResponse(
+                content=json.dumps(data),
+                parsed_json=data,
+                token_count=50,
+                raw_response={"mock": True},
+            )
+
+        mock.complete = retry_complete
+        personas = await generate_population(seed, mock, db, count=1)
+        assert call_counter == 2  # First call failed, second succeeded
+        assert len(personas) == 1
         assert personas[0].archetype == "analyst"

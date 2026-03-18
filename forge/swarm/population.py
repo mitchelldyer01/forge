@@ -44,23 +44,34 @@ async def _generate_batch(
         count=str(batch_count),
     )
 
-    try:
-        response = await llm.complete(
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.9,
-            max_tokens=max(2048, batch_count * 600),
-        )
-    except ParseError as e:
-        logger.warning(
-            "LLM returned invalid JSON for batch of %d agents: %s",
-            batch_count,
-            e,
-        )
-        return []
-
-    agents_data = response.parsed_json or {}
-    return agents_data.get("agents", [])
+    max_tokens = max(2048, batch_count * 600)
+    for attempt in range(2):
+        try:
+            response = await llm.complete(
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.9,
+                max_tokens=max_tokens,
+            )
+            agents_data = response.parsed_json or {}
+            return agents_data.get("agents", [])
+        except ParseError as e:
+            if attempt == 0:
+                logger.warning(
+                    "LLM returned invalid JSON for batch of %d agents: %s. "
+                    "Retrying once.",
+                    batch_count,
+                    e,
+                )
+                continue
+            logger.warning(
+                "LLM returned invalid JSON for batch of %d agents "
+                "after retry: %s",
+                batch_count,
+                e,
+            )
+            return []
+    return []  # unreachable but satisfies type checker
 
 
 async def generate_population(

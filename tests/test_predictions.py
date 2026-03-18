@@ -166,3 +166,28 @@ class TestExtractPredictions:
         assert mock_llm.call_count == 1
         last_msg = mock_llm.last_messages[-1]["content"]
         assert "EU regulates AI agents" in last_msg
+
+    async def test_extract_predictions_scales_max_tokens(
+        self, seed, simulation, mock_llm, db: Store,
+    ):
+        """max_tokens scales with agent count for large simulations."""
+        # Build a consensus with many agents to trigger higher token budget
+        large_consensus = ConsensusReport(
+            majority_position="support",
+            majority_confidence=80.0,
+            majority_fraction=0.7,
+            dissent_clusters=[
+                DissentCluster(
+                    position="oppose",
+                    agent_count=10,
+                    avg_confidence=60.0,
+                    key_arguments=["arg1", "arg2", "arg3"],
+                ),
+            ],
+        )
+        mock_llm.set_response({"predictions": []})
+        await extract_predictions(
+            seed, large_consensus, mock_llm, db, simulation.id, agent_count=30,
+        )
+        # Should have requested more than default 2048 tokens
+        assert mock_llm.last_max_tokens >= 3000

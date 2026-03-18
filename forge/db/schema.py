@@ -182,6 +182,27 @@ CREATE INDEX IF NOT EXISTS idx_articles_url ON articles(url);
 """
 
 
+_MIGRATIONS = [
+    # Add raw_content column for storing pre-parsed LLM text
+    (
+        "simulation_turns",
+        "raw_content",
+        "ALTER TABLE simulation_turns ADD COLUMN raw_content TEXT",
+    ),
+]
+
+
 def apply_schema(conn: sqlite3.Connection) -> None:
     """Apply the full FORGE schema to a SQLite connection."""
     conn.executescript(SCHEMA_SQL)
+    _apply_migrations(conn)
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Apply column-level migrations for existing databases."""
+    for table, column, sql in _MIGRATIONS:
+        # Check if column already exists
+        cursor = conn.execute(f"PRAGMA table_info({table})")  # noqa: S608
+        existing = {row[1] for row in cursor.fetchall()}
+        if column not in existing:
+            conn.execute(sql)
