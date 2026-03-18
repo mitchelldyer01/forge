@@ -44,7 +44,7 @@ You MUST output valid JSON with this exact structure:
 
 - At least 20% should be contrarian (disagree with the likely majority view).
 - Include at least 2 domain experts directly relevant to the scenario.
-- Include at least 2 "adjacent domain" experts who bring unexpected perspectives.
+- Include at least 2 "adjacent domain" experts who bring unexpected but relevant perspectives (e.g., for a financial regulation question, a behavioral psychologist or a tech entrepreneur — not a healthcare consumer).
 - Include at least 1 pessimist, 1 optimist, and 1 who focuses purely on second-order effects.
 - Vary risk appetites, analytical depth, and reasoning styles across the population.
 - Distribute confidence_anchor evenly: at least 30% low, 30% medium, 30% high.

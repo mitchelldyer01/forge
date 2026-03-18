@@ -69,6 +69,16 @@ class TestPersonaGeneratorPrompt:
         assert "25%" in result
         assert "Stance Diversity" in result
 
+    def test_persona_generator_adjacent_experts_must_be_relevant(self):
+        """Adjacent domain experts must be relevant to the scenario."""
+        result = load_swarm_prompt(
+            "persona_generator",
+            seed_text="Test scenario",
+            seed_context="",
+            count="5",
+        )
+        assert "unexpected but relevant" in result
+
 
 def _render_convergence(**overrides) -> str:
     """Helper to render convergence prompt with defaults."""
@@ -95,9 +105,9 @@ class TestConvergencePrompt:
         assert "POSITION changed" in result
 
     def test_convergence_prompt_contains_conviction_anchor_instruction(self):
-        """Convergence prompt requires specific refutation to change."""
+        """Convergence prompt requires naming what undermined reasoning."""
         result = _render_convergence()
-        assert "directly refutes" in result
+        assert "undermined your core reasoning" in result
 
     def test_convergence_prompt_renders_confidence_anchor(self):
         """Convergence prompt includes the confidence_anchor value."""
@@ -115,6 +125,11 @@ class TestConvergencePrompt:
         assert "absolute change in confidence" in result
 
     def test_convergence_prompt_justification_requires_counterargument(self):
-        """Confidence justification requires naming counterarguments."""
+        """Confidence justification asks about strongest challenge."""
         result = _render_convergence()
-        assert "strongest argument AGAINST" in result
+        assert "strongest challenge" in result
+
+    def test_convergence_prompt_allows_position_change(self):
+        """Convergence prompt encourages changing mind when warranted."""
+        result = _render_convergence()
+        assert "intellectual honesty" in result
