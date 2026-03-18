@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from forge.swarm.consensus import ConsensusReport, extract_consensus
@@ -42,16 +42,22 @@ def _collect_turns(
     round_num: int,
     on_turn: Callable | None = None,
     personas_map: dict[str, AgentPersona] | None = None,
+    diagnostics: SimulationDiagnostics | None = None,
 ) -> list[SimulationTurn]:
     """Filter successful turns from gather results and fire callbacks."""
     turns: list[SimulationTurn] = []
     for i, result in enumerate(results):
         if isinstance(result, BaseException):
             display = _agent_display_name(population[i])
+            error_type = type(result).__name__
             logger.warning(
                 "Agent %s failed in round %d: %s",
-                display, round_num, type(result).__name__,
+                display, round_num, error_type,
             )
+            if diagnostics is not None:
+                diagnostics.agent_failures.append(
+                    f"Round {round_num}: {display} — {error_type}"
+                )
         else:
             turns.append(result)
             if on_turn and personas_map:
@@ -62,6 +68,39 @@ def _collect_turns(
 
 
 @dataclass
+class SimulationDiagnostics:
+    """Tracks errors and failures during a simulation run."""
+
+    agent_failures: list[str] = field(default_factory=list)
+    population_failures: int = 0
+
+    @property
+    def total_failures(self) -> int:
+        return len(self.agent_failures) + self.population_failures
+
+    def format_summary(self) -> str:
+        """Format diagnostics as a human-readable summary."""
+        if self.total_failures == 0:
+            return ""
+        lines: list[str] = []
+        if self.population_failures:
+            lines.append(
+                f"  Population: {self.population_failures} batch(es) failed"
+            )
+        round_failures: dict[int, int] = {}
+        for entry in self.agent_failures:
+            # entries are like "Round 1: AgentName (archetype) — ErrorType"
+            try:
+                r = int(entry.split(":")[0].split()[1])
+                round_failures[r] = round_failures.get(r, 0) + 1
+            except (IndexError, ValueError):
+                pass
+        for r in sorted(round_failures):
+            lines.append(f"  Round {r}: {round_failures[r]} agent(s) failed")
+        return "\n".join(lines)
+
+
+@dataclass
 class SimulationResult:
     """Result of a complete simulation run."""
 
@@ -69,6 +108,7 @@ class SimulationResult:
     turns: list[SimulationTurn]
     consensus: ConsensusReport
     duration_seconds: float
+    diagnostics: SimulationDiagnostics = field(default_factory=SimulationDiagnostics)
 
 
 async def run_simulation(
@@ -99,6 +139,7 @@ async def run_simulation(
     """
     start = time.monotonic()
     sem = asyncio.Semaphore(max_concurrent)
+    diagnostics = SimulationDiagnostics()
 
     # Create simulation record
     sim = store.save_simulation(
@@ -118,6 +159,7 @@ async def run_simulation(
         r1_turns = await _run_round1(
             seed, population, llm, store, sim.id, sem,
             on_turn=on_turn, personas_map=personas_map,
+            diagnostics=diagnostics,
         )
         all_turns.extend(r1_turns)
         if on_round_complete:
@@ -128,7 +170,7 @@ async def run_simulation(
         if rounds >= 2:
             r2_turns = await _run_round2(
                 seed, population, r1_turns, personas_map, llm, store, sim.id, sem,
-                on_turn=on_turn,
+                on_turn=on_turn, diagnostics=diagnostics,
             )
             all_turns.extend(r2_turns)
             if on_round_complete:
@@ -139,6 +181,7 @@ async def run_simulation(
             r3_turns = await _run_round3(
                 seed, population, r1_turns, r2_turns, llm, store, sim.id, sem,
                 on_turn=on_turn, personas_map=personas_map,
+                diagnostics=diagnostics,
             )
             all_turns.extend(r3_turns)
             if on_round_complete:
@@ -160,6 +203,7 @@ async def run_simulation(
             turns=all_turns,
             consensus=consensus,
             duration_seconds=round(duration, 2),
+            diagnostics=diagnostics,
         )
 
     except Exception:
@@ -177,6 +221,7 @@ async def _run_round1(
     *,
     on_turn: Callable | None = None,
     personas_map: dict[str, AgentPersona] | None = None,
+    diagnostics: SimulationDiagnostics | None = None,
 ) -> list[SimulationTurn]:
     """Round 1: Each agent independently reacts to the scenario."""
 
@@ -211,11 +256,12 @@ async def _run_round1(
             position=data.get("position", "neutral"),
             confidence=data.get("confidence", 50),
             token_count=response.token_count,
+            raw_content=response.content,
         )
 
     tasks = [react(agent) for agent in population]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    return _collect_turns(results, population, 1, on_turn, personas_map)
+    return _collect_turns(results, population, 1, on_turn, personas_map, diagnostics)
 
 
 async def _run_round2(
@@ -229,6 +275,7 @@ async def _run_round2(
     sem: asyncio.Semaphore,
     *,
     on_turn: Callable | None = None,
+    diagnostics: SimulationDiagnostics | None = None,
 ) -> list[SimulationTurn]:
     """Round 2: Each agent responds to selected opposing views."""
     # Build lookup of r1 turns by agent
@@ -292,11 +339,12 @@ async def _run_round2(
             position=data.get("position", "neutral"),
             confidence=data.get("confidence", 50),
             token_count=response.token_count,
+            raw_content=response.content,
         )
 
     tasks = [interact(agent) for agent in population]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    return _collect_turns(results, population, 2, on_turn, personas_map)
+    return _collect_turns(results, population, 2, on_turn, personas_map, diagnostics)
 
 
 async def _run_round3(
@@ -311,6 +359,7 @@ async def _run_round3(
     *,
     on_turn: Callable | None = None,
     personas_map: dict[str, AgentPersona] | None = None,
+    diagnostics: SimulationDiagnostics | None = None,
 ) -> list[SimulationTurn]:
     """Round 3: Final positions with conviction deltas."""
     r1_by_agent = {t.agent_persona_id: t for t in r1_turns}
@@ -353,11 +402,12 @@ async def _run_round3(
             position=position,
             confidence=data.get("confidence", 50),
             token_count=response.token_count,
+            raw_content=response.content,
         )
 
     tasks = [converge(agent) for agent in population]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    return _collect_turns(results, population, 3, on_turn, personas_map)
+    return _collect_turns(results, population, 3, on_turn, personas_map, diagnostics)
 
 
 def _safe_json(content: str) -> dict:

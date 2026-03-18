@@ -306,6 +306,148 @@ def graph(
 
 
 @app.command()
+def turns(
+    simulation_id: str | None = typer.Argument(None, help="Simulation ID to inspect"),
+    round_num: int | None = typer.Option(None, "--round", "-r", help="Filter by round"),
+    agent: str | None = typer.Option(None, "--agent", "-a", help="Filter by archetype"),
+    detail: bool = typer.Option(False, "--detail", "-d", help="Show full LLM content"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON"),
+    pager: bool = typer.Option(False, "--pager", help="Use interactive pager"),
+) -> None:
+    """Browse LLM responses from simulation runs."""
+    from rich.table import Table
+
+    store = _get_store()
+
+    if simulation_id is None:
+        # List recent simulations
+        sims = store.list_simulations()
+        if not sims:
+            console.print("No simulations yet.")
+            return
+
+        table = Table(title="Simulations")
+        table.add_column("ID", style="dim")
+        table.add_column("Scenario", max_width=50)
+        table.add_column("Agents", justify="right")
+        table.add_column("Rounds", justify="right")
+        table.add_column("Status")
+        table.add_column("Date", style="dim")
+
+        for s in sims:
+            table.add_row(
+                s.id,
+                s.seed_text[:47] + "..." if len(s.seed_text) > 50 else s.seed_text,
+                str(s.agent_count or "-"),
+                str(s.rounds or "-"),
+                s.status,
+                s.started_at[:10] if s.started_at else "-",
+            )
+        console.print(table)
+        return
+
+    # Verify simulation exists
+    sim = store.get_simulation(simulation_id)
+    if sim is None:
+        console.print(f"[red]Simulation {simulation_id} not found.[/red]")
+        raise typer.Exit(code=1)
+
+    rows = store.list_turns_with_agent(
+        simulation_id, round=round_num, archetype=agent,
+    )
+
+    if not rows:
+        console.print("No turns found.")
+        return
+
+    if json_output:
+        import json as json_mod
+        typer.echo(json_mod.dumps(rows, indent=2, default=str))
+        return
+
+    output_console = Console() if pager else console
+
+    if detail:
+        _render_turns_detail(rows, output_console, pager)
+    else:
+        _render_turns_table(rows, output_console, pager)
+
+
+def _safe_parse(content: str | None) -> dict:
+    """Safely parse JSON content, returning empty dict on failure."""
+    if not content:
+        return {}
+    try:
+        return json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _render_turns_table(rows: list[dict], target: Console, use_pager: bool) -> None:
+    """Render turns as a summary table."""
+    from rich.table import Table
+
+    table = Table(title="Simulation Turns")
+    table.add_column("Round", justify="right")
+    table.add_column("Agent")
+    table.add_column("Position")
+    table.add_column("Conf", justify="right")
+    table.add_column("Type")
+    table.add_column("Reasoning", max_width=50)
+
+    for row in rows:
+        content = _safe_parse(row.get("content"))
+        reasoning = content.get("reasoning", content.get("key_insight", ""))
+        if len(reasoning) > 50:
+            reasoning = reasoning[:47] + "..."
+
+        conf = row.get("confidence")
+        conf_str = str(conf) if conf is not None else "-"
+
+        table.add_row(
+            str(row["round"]),
+            row["archetype"],
+            row.get("position") or "-",
+            conf_str,
+            row["turn_type"],
+            reasoning,
+        )
+
+    if use_pager:
+        with target.pager():
+            target.print(table)
+    else:
+        target.print(table)
+
+
+def _render_turns_detail(rows: list[dict], target: Console, use_pager: bool) -> None:
+    """Render turns with full content in panels."""
+    panels = []
+    for row in rows:
+        content = row["content"]
+        try:
+            parsed = json.loads(content)
+            formatted = json.dumps(parsed, indent=2)
+        except (json.JSONDecodeError, TypeError):
+            formatted = content or "(empty)"
+
+        title = (
+            f"[bold]Round {row['round']}[/bold] | "
+            f"{row['archetype']} | "
+            f"{row.get('position', 'neutral')} ({row.get('confidence', '?')}%)"
+        )
+        panels.append(Panel(formatted, title=title))
+
+    if use_pager:
+        with target.pager():
+            for p in panels:
+                target.print(p)
+    else:
+        for p in panels:
+            target.print(p)
+
+
+@app.command()
 def simulate(
     scenario: str = typer.Argument(help="The scenario to simulate"),
     context: str | None = typer.Option(None, "--context", "-c", help="Background context"),
@@ -414,6 +556,7 @@ async def _run_simulate(seed, llm, store, agent_count, round_count,
 
     predictions = await extract_preds(
         seed, sim_result.consensus, llm, store, sim_result.simulation.id,
+        agent_count=sim_result.simulation.agent_count,
     )
     return {
         "simulation": sim_result.simulation,
@@ -480,6 +623,14 @@ def _render_simulation(result: dict) -> None:
             panel_content += (
                 f"\n  {shift.archetype}: {shift.from_position} → {shift.to_position}"
             )
+
+    # Diagnostics summary
+    if sim_result.diagnostics.total_failures > 0:
+        diag = sim_result.diagnostics.format_summary()
+        panel_content += (
+            f"\n\n[yellow bold]Errors ({sim_result.diagnostics.total_failures}):[/yellow bold]"
+            f"\n{diag}"
+        )
 
     console.print(Panel(panel_content, title="[bold]FORGE Simulation[/bold]"))
 

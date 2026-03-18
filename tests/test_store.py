@@ -723,6 +723,82 @@ class TestSimulationTurnCRUD:
                 turn_type="reaction", content="",
             )
 
+    def test_store_save_simulation_turn_with_raw_content(self, db: Store):
+        """raw_content is persisted alongside parsed content."""
+        sim, persona = self._setup_simulation(db)
+        turn = db.save_simulation_turn(
+            simulation_id=sim.id, round=1, agent_persona_id=persona.id,
+            turn_type="reaction", content='{"position": "support"}',
+            raw_content='```json\n{"position": "support"}\n```',
+        )
+        assert turn.raw_content == '```json\n{"position": "support"}\n```'
+
+    def test_store_save_simulation_turn_raw_content_nullable(self, db: Store):
+        """raw_content defaults to None when not provided."""
+        sim, persona = self._setup_simulation(db)
+        turn = db.save_simulation_turn(
+            simulation_id=sim.id, round=1, agent_persona_id=persona.id,
+            turn_type="reaction", content='{}',
+        )
+        assert turn.raw_content is None
+
+    def test_store_list_turns_with_agent_returns_archetype(self, db: Store):
+        """list_turns_with_agent returns turn data enriched with agent archetype."""
+        sim = db.save_simulation(mode="scenario", seed_text="Test")
+        import json
+        persona = db.save_agent_persona(
+            archetype="tech_optimist",
+            persona_json=json.dumps({"name": "Alice", "archetype": "tech_optimist"}),
+        )
+        db.save_simulation_turn(
+            simulation_id=sim.id, round=1, agent_persona_id=persona.id,
+            turn_type="reaction", content='{"position": "support"}',
+            position="support", confidence=80,
+        )
+        results = db.list_turns_with_agent(sim.id)
+        assert len(results) == 1
+        assert results[0]["archetype"] == "tech_optimist"
+        assert results[0]["position"] == "support"
+
+    def test_store_list_turns_with_agent_filters_by_round(self, db: Store):
+        """list_turns_with_agent filters by round number."""
+        sim = db.save_simulation(mode="scenario", seed_text="Test")
+        persona = db.save_agent_persona(archetype="analyst", persona_json='{}')
+        db.save_simulation_turn(
+            simulation_id=sim.id, round=1, agent_persona_id=persona.id,
+            turn_type="reaction", content='{}',
+        )
+        db.save_simulation_turn(
+            simulation_id=sim.id, round=2, agent_persona_id=persona.id,
+            turn_type="challenge", content='{}',
+        )
+        results = db.list_turns_with_agent(sim.id, round=1)
+        assert len(results) == 1
+        assert results[0]["round"] == 1
+
+    def test_store_list_turns_with_agent_filters_by_archetype(self, db: Store):
+        """list_turns_with_agent filters by archetype substring."""
+        sim = db.save_simulation(mode="scenario", seed_text="Test")
+        p1 = db.save_agent_persona(archetype="tech_optimist", persona_json='{}')
+        p2 = db.save_agent_persona(archetype="regulatory_skeptic", persona_json='{}')
+        db.save_simulation_turn(
+            simulation_id=sim.id, round=1, agent_persona_id=p1.id,
+            turn_type="reaction", content='{}',
+        )
+        db.save_simulation_turn(
+            simulation_id=sim.id, round=1, agent_persona_id=p2.id,
+            turn_type="reaction", content='{}',
+        )
+        results = db.list_turns_with_agent(sim.id, archetype="tech")
+        assert len(results) == 1
+        assert results[0]["archetype"] == "tech_optimist"
+
+    def test_store_list_turns_with_agent_empty_simulation(self, db: Store):
+        """list_turns_with_agent returns empty list for simulation with no turns."""
+        sim = db.save_simulation(mode="scenario", seed_text="Empty")
+        results = db.list_turns_with_agent(sim.id)
+        assert results == []
+
 
 # ---------------------------------------------------------------------------
 # Prediction CRUD

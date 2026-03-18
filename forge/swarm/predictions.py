@@ -56,6 +56,7 @@ async def extract_predictions(
     llm: object,
     store: Store,
     simulation_id: str,
+    agent_count: int | None = None,
 ) -> list[Prediction]:
     """Extract predictions from simulation consensus via one LLM call.
 
@@ -65,6 +66,7 @@ async def extract_predictions(
         llm: LLM client (LLMClient or MockLLMClient).
         store: Database store for persistence.
         simulation_id: The simulation ID to associate predictions with.
+        agent_count: Number of agents in simulation (scales token budget).
 
     Returns:
         List of persisted Prediction models.
@@ -76,10 +78,14 @@ async def extract_predictions(
         consensus_report=consensus_text,
     )
 
+    # Scale token budget for larger simulations
+    max_tokens = max(2048, (agent_count or 0) * 100)
+
     response = await llm.complete(
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
         temperature=0.5,
+        max_tokens=max_tokens,
     )
 
     data = response.parsed_json or {}
