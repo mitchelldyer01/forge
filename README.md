@@ -45,7 +45,7 @@ docker run --rm -d \
   forge-llama
 ```
 
-This starts Qwen3-8B with 8 parallel slots, continuous batching, full GPU offload, and 32K context.
+This starts Qwen3-8B with 4 parallel slots (~8K tokens per slot), continuous batching, full GPU offload, and 32K total context.
 
 ### 4. Validate the server
 
@@ -55,7 +55,7 @@ python scripts/validate_model.py
 python scripts/validate_model.py -v
 ```
 
-All 9 checks should pass: health, model loaded, basic completion, thinking mode, JSON output, structured output, concurrent requests (8 slots), throughput, and JSON reliability (10/10).
+All 9 checks should pass: health, model loaded, basic completion, thinking mode, JSON output, structured output, concurrent requests (4 slots), throughput, and JSON reliability (10/10).
 
 ### 5. Initialize the database
 
@@ -144,6 +144,12 @@ uv run forge run
 
 # Single pipeline cycle
 uv run forge run --once
+
+# Single cycle with automatic simulation of extracted claims
+uv run forge run --once --auto-simulate
+
+# View simulation debate trace
+uv run forge turns <sim_id> --md
 ```
 
 ### Evolution & Maintenance

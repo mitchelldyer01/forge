@@ -129,6 +129,43 @@ class TestClaimExtraction:
         hypotheses = asyncio.run(extract_claims(article, mock_llm, db))
         assert hypotheses == []
 
+    def test_extract_claims_truncates_long_content(
+        self, mock_llm: MockLLMClient,
+    ) -> None:
+        """Content exceeding _MAX_CONTENT_CHARS is truncated before LLM call."""
+        from forge.extract.claims import _MAX_CONTENT_CHARS, extract_claims_from_text
+
+        long_text = "A" * (_MAX_CONTENT_CHARS + 5000)
+        mock_llm.set_response({"claims": []})
+
+        import asyncio
+        asyncio.run(extract_claims_from_text(long_text, mock_llm))
+
+        sent = mock_llm.last_messages[-1]["content"]
+        # The prompt should not contain all the original chars
+        assert len(long_text) > _MAX_CONTENT_CHARS
+        # The raw text in the prompt must have been truncated
+        assert long_text not in sent
+        assert "[Content truncated for analysis]" in sent
+
+    def test_extract_claims_short_content_unchanged(
+        self, mock_llm: MockLLMClient,
+    ) -> None:
+        """Content under _MAX_CONTENT_CHARS passes through without truncation."""
+        from forge.extract.claims import _MAX_CONTENT_CHARS, extract_claims_from_text
+
+        short_text = "Short article about AI agents."
+        assert len(short_text) < _MAX_CONTENT_CHARS
+
+        mock_llm.set_response({"claims": []})
+
+        import asyncio
+        asyncio.run(extract_claims_from_text(short_text, mock_llm))
+
+        sent = mock_llm.last_messages[-1]["content"]
+        assert short_text in sent
+        assert "[Content truncated for analysis]" not in sent
+
 
 # ------------------------------------------------------------------
 # Prompt loading

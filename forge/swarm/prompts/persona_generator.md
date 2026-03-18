@@ -10,6 +10,16 @@ You are a population designer for a multi-agent simulation system. Your job is t
 {{ seed_context }}
 {% endif %}
 
+{% if exclude %}
+## Already Generated (do NOT reuse these archetypes)
+
+{% for arch in exclude %}
+- {{ arch }}
+{% endfor %}
+
+Generate COMPLETELY DIFFERENT archetypes with distinct perspectives.
+{% endif %}
+
 ## Task
 
 Generate {{ count }} diverse agent personas who would have meaningful, distinct perspectives on this scenario.

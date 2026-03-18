@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -32,6 +31,7 @@ async def _generate_batch(
     seed: SeedMaterial,
     llm: object,
     batch_count: int,
+    exclude: list[str] | None = None,
 ) -> list[dict]:
     """Generate a single batch of agent personas via one LLM call.
 
@@ -42,6 +42,7 @@ async def _generate_batch(
         seed_text=seed.text,
         seed_context=seed.context or "",
         count=str(batch_count),
+        exclude=exclude or [],
     )
 
     max_tokens = max(2048, batch_count * 600)
@@ -137,17 +138,15 @@ async def generate_population(
         batch_sizes.append(batch)
         remaining -= batch
 
-    # Run all batches concurrently
-    tasks = [
-        _generate_batch(seed, llm, batch_count)
-        for batch_count in batch_sizes
-    ]
-    batch_results = await asyncio.gather(*tasks)
-
-    # Flatten and deduplicate across batches
+    # Run batches sequentially, passing exclusion list of already-generated
+    # archetypes so the LLM avoids duplicates instead of generating them
     all_agents: list[dict] = []
-    for agents in batch_results:
-        all_agents.extend(agents)
+    for batch_count in batch_sizes:
+        existing = [a.get("archetype", "") for a in all_agents]
+        batch = await _generate_batch(seed, llm, batch_count, exclude=existing)
+        all_agents.extend(batch)
+
+    # Deduplicate any remaining cross-batch duplicates
     all_agents = _deduplicate_agents(all_agents)
     all_agents = all_agents[:count]
 
@@ -161,7 +160,8 @@ async def generate_population(
             len(all_agents), count, backfill_attempts,
         )
         try:
-            extra = await _generate_batch(seed, llm, shortfall)
+            existing = [a.get("archetype", "") for a in all_agents]
+            extra = await _generate_batch(seed, llm, shortfall, exclude=existing)
         except Exception:
             logger.warning("Backfill batch %d failed, giving up.", backfill_attempts)
             break

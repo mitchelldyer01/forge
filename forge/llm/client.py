@@ -256,6 +256,7 @@ class MockLLMClient:
     _parse_errors: list[bool] = field(default_factory=list)
     call_count: int = 0
     last_messages: list[dict] = field(default_factory=list)
+    all_messages: list[list[dict]] = field(default_factory=list)
     last_max_tokens: int = 0
 
     def set_response(self, json_dict: dict) -> None:
@@ -285,6 +286,7 @@ class MockLLMClient:
         """Return queued response or raise queued error."""
         self.call_count += 1
         self.last_messages = messages
+        self.all_messages.append(messages)
         self.last_max_tokens = max_tokens
 
         if self._parse_errors:

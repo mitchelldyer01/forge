@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from forge.llm.client import LLMClient, MockLLMClient
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
+_MAX_CONTENT_CHARS = 20000  # ~5000 tokens, safe for 8K context slot
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +38,8 @@ async def extract_claims_from_text(
     if not text:
         prompt = load_prompt("claim_extraction", title="", content="")
     else:
+        if len(text) > _MAX_CONTENT_CHARS:
+            text = text[:_MAX_CONTENT_CHARS] + "\n\n[Content truncated for analysis]"
         prompt = load_prompt("claim_extraction", title="", content=text)
 
     response = await llm.complete(

@@ -414,6 +414,43 @@ class TestGeneratePopulationBatching:
         assert len(personas) == 3
         assert mock_llm.call_count == 3  # 1 initial + 2 backfill attempts
 
+    async def test_generate_batch_passes_exclusion_to_prompt(
+        self, seed: SeedMaterial, mock_llm, db: Store,
+    ):
+        """Excluded archetypes appear in the LLM prompt."""
+        from forge.swarm.population import _generate_batch
+
+        mock_llm.set_response({"agents": []})
+        await _generate_batch(
+            seed, mock_llm, 3, exclude=["retail_investor", "policy_analyst"],
+        )
+        sent = mock_llm.last_messages[-1]["content"]
+        assert "retail_investor" in sent
+        assert "policy_analyst" in sent
+
+    async def test_generate_population_sequential_with_exclusion(
+        self, seed: SeedMaterial, mock_llm, db: Store,
+    ):
+        """Second batch receives first batch's archetypes as exclusion."""
+        count = BATCH_SIZE * 2
+        batch_responses = [
+            {"agents": [
+                {"archetype": f"type_{i}", "name": f"Agent {i}"}
+                for i in range(BATCH_SIZE)
+            ]},
+            {"agents": [
+                {"archetype": f"type_{i + BATCH_SIZE}", "name": f"Agent {i + BATCH_SIZE}"}
+                for i in range(BATCH_SIZE)
+            ]},
+        ]
+        mock_llm.set_responses(batch_responses)
+        await generate_population(seed, mock_llm, db, count=count)
+
+        # Second call's prompt should contain first batch's archetypes
+        assert mock_llm.call_count == 2
+        second_prompt = mock_llm.all_messages[1][-1]["content"]
+        assert "type_0" in second_prompt
+
     async def test_generate_population_retries_failed_batch(
         self, seed: SeedMaterial, db: Store,
     ):
