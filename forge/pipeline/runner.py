@@ -56,12 +56,30 @@ async def run_ingestion_cycle(
 async def run_pipeline_once(
     store: Store,
     llm: LLMClient | MockLLMClient,
+    *,
+    auto_simulate: bool = False,
+    auto_simulate_top_n: int = 3,
+    auto_simulate_min_confidence: int = 60,
+    auto_simulate_agent_count: int = 14,
+    auto_simulate_rounds: int = 3,
 ) -> dict:
-    """Run a full pipeline cycle: ingest + check overdue predictions."""
+    """Run a full pipeline cycle: ingest + check overdue + optional auto-simulate."""
     ingestion = await run_ingestion_cycle(store, llm)
     overdue = check_overdue_predictions(store)
+
+    sim_ids: list[str] = []
+    if auto_simulate:
+        from forge.pipeline.auto_simulate import auto_simulate_cycle
+        sim_ids = await auto_simulate_cycle(
+            store, llm,
+            top_n=auto_simulate_top_n,
+            min_confidence=auto_simulate_min_confidence,
+            agent_count=auto_simulate_agent_count,
+            rounds=auto_simulate_rounds,
+        )
 
     return {
         "ingestion": ingestion,
         "overdue_predictions": len(overdue),
+        "auto_simulations": len(sim_ids),
     }

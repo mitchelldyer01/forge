@@ -884,6 +884,9 @@ def calibration() -> None:
 @app.command()
 def run(
     once: bool = typer.Option(False, "--once", help="Run a single pipeline cycle"),
+    auto_simulate: bool = typer.Option(
+        False, "--auto-simulate", help="Auto-simulate top claims after ingestion",
+    ),
 ) -> None:
     """Run the ingestion pipeline (continuous or single cycle)."""
     from forge.pipeline.runner import run_pipeline_once
@@ -893,21 +896,35 @@ def run(
     store = _get_store()
     llm = _get_llm()
 
+    sim_enabled = auto_simulate or settings.auto_simulate
+    sim_kwargs = {
+        "auto_simulate": sim_enabled,
+        "auto_simulate_top_n": settings.auto_simulate_top_n,
+        "auto_simulate_min_confidence": settings.auto_simulate_min_confidence,
+        "auto_simulate_agent_count": settings.auto_simulate_agent_count,
+        "auto_simulate_rounds": settings.auto_simulate_rounds,
+    }
+
     if once:
-        result = asyncio.run(run_pipeline_once(store, llm))
+        result = asyncio.run(run_pipeline_once(store, llm, **sim_kwargs))
         ingestion = result["ingestion"]
-        console.print(
-            f"Fetched {ingestion['articles_fetched']} article(s), "
-            f"extracted {ingestion['claims_extracted']} claim(s), "
-            f"{result['overdue_predictions']} overdue prediction(s)."
-        )
+        parts = [
+            f"Fetched {ingestion['articles_fetched']} article(s)",
+            f"extracted {ingestion['claims_extracted']} claim(s)",
+            f"{result['overdue_predictions']} overdue prediction(s)",
+        ]
+        if sim_enabled:
+            parts.append(f"{result['auto_simulations']} auto-simulation(s)")
+        console.print(", ".join(parts) + ".")
     else:
         console.print(
             f"Starting continuous pipeline (interval: {settings.poll_interval_minutes}m). "
             "Press Ctrl+C to stop."
         )
         try:
-            asyncio.run(run_scheduled(store, llm, settings.poll_interval_minutes))
+            asyncio.run(run_scheduled(
+                store, llm, settings.poll_interval_minutes, **sim_kwargs,
+            ))
         except KeyboardInterrupt:
             console.print("\nPipeline stopped.")
 

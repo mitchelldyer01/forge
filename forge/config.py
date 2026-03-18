@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     cull_min_confidence: int = 25
     cull_min_age_days: int = 7
     rechallenge_days: int = 14
+    auto_simulate: bool = False
+    auto_simulate_top_n: int = 3
+    auto_simulate_min_confidence: int = 60
+    auto_simulate_agent_count: int = 14
+    auto_simulate_rounds: int = 3
     log_level: str = "INFO"
 
     model_config = {"env_prefix": "FORGE_"}

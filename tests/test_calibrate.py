@@ -368,3 +368,155 @@ class TestDriftDetection:
 
         alerts = detect_drift(db, window_days=30)
         assert alerts == []
+
+
+# ------------------------------------------------------------------
+# Agent score updates on prediction resolution
+# ------------------------------------------------------------------
+
+
+def _setup_simulation_with_agents(
+    db: Store,
+) -> tuple[str, list[str]]:
+    """Create a simulation with 3 agents who took Round 3 positions.
+
+    Returns (simulation_id, [agent_id_support, agent_id_oppose, agent_id_support2]).
+    """
+    import json
+
+    sim = db.save_simulation(
+        mode="scenario",
+        seed_text="Test scenario",
+        agent_count=3,
+        rounds=3,
+    )
+
+    agents = []
+    for archetype in ("optimist", "skeptic", "moderate"):
+        agent = db.save_agent_persona(
+            archetype=archetype,
+            persona_json=json.dumps({"archetype": archetype, "name": archetype}),
+        )
+        agents.append(agent)
+
+    # Round 3 final positions
+    db.save_simulation_turn(
+        simulation_id=sim.id, round=3, agent_persona_id=agents[0].id,
+        turn_type="react", content='{"position": "support"}',
+        position="support", confidence=80,
+    )
+    db.save_simulation_turn(
+        simulation_id=sim.id, round=3, agent_persona_id=agents[1].id,
+        turn_type="react", content='{"position": "oppose"}',
+        position="oppose", confidence=70,
+    )
+    db.save_simulation_turn(
+        simulation_id=sim.id, round=3, agent_persona_id=agents[2].id,
+        turn_type="react", content='{"position": "support"}',
+        position="support", confidence=60,
+    )
+
+    return sim.id, [a.id for a in agents]
+
+
+@pytest.mark.unit
+class TestAgentScoreUpdates:
+    """Tests for agent calibration updates when predictions resolve."""
+
+    def test_resolve_true_credits_supporting_agents(self, db: Store) -> None:
+        """Supporting agents are correct when prediction resolves true."""
+        from forge.calibrate.resolver import resolve_prediction
+
+        sim_id, agent_ids = _setup_simulation_with_agents(db)
+        pred = db.save_prediction(
+            simulation_id=sim_id, claim="Test claim", confidence=75,
+        )
+        resolve_prediction(db, pred.id, "true")
+
+        supporter = db.get_agent_persona(agent_ids[0])
+        opposer = db.get_agent_persona(agent_ids[1])
+        assert supporter.predictions_correct == 1
+        assert supporter.predictions_incorrect == 0
+        assert opposer.predictions_correct == 0
+        assert opposer.predictions_incorrect == 1
+
+    def test_resolve_false_credits_opposing_agents(self, db: Store) -> None:
+        """Opposing agents are correct when prediction resolves false."""
+        from forge.calibrate.resolver import update_agent_scores
+
+        sim_id, agent_ids = _setup_simulation_with_agents(db)
+        pred = db.save_prediction(
+            simulation_id=sim_id, claim="Test claim", confidence=75,
+        )
+        update_agent_scores(db, pred.id, "false")
+
+        supporter = db.get_agent_persona(agent_ids[0])
+        opposer = db.get_agent_persona(agent_ids[1])
+        assert supporter.predictions_correct == 0
+        assert supporter.predictions_incorrect == 1
+        assert opposer.predictions_correct == 1
+        assert opposer.predictions_incorrect == 0
+
+    def test_resolve_calculates_calibration_score(self, db: Store) -> None:
+        """calibration_score is computed as correct / total."""
+        from forge.calibrate.resolver import update_agent_scores
+
+        sim_id, agent_ids = _setup_simulation_with_agents(db)
+
+        # First prediction: supporter is correct
+        p1 = db.save_prediction(
+            simulation_id=sim_id, claim="Claim 1", confidence=75,
+        )
+        update_agent_scores(db, p1.id, "true")
+
+        # Second prediction: supporter is wrong
+        p2 = db.save_prediction(
+            simulation_id=sim_id, claim="Claim 2", confidence=60,
+        )
+        update_agent_scores(db, p2.id, "false")
+
+        supporter = db.get_agent_persona(agent_ids[0])
+        # 1 correct + 1 incorrect = 0.5
+        assert supporter.calibration_score == pytest.approx(0.5)
+        assert supporter.predictions_correct == 1
+        assert supporter.predictions_incorrect == 1
+
+    def test_resolve_partial_gives_all_credit(self, db: Store) -> None:
+        """Partial outcome gives credit to all agents."""
+        from forge.calibrate.resolver import update_agent_scores
+
+        sim_id, agent_ids = _setup_simulation_with_agents(db)
+        pred = db.save_prediction(
+            simulation_id=sim_id, claim="Test claim", confidence=75,
+        )
+        update_agent_scores(db, pred.id, "partial")
+
+        for aid in agent_ids:
+            agent = db.get_agent_persona(aid)
+            assert agent.predictions_correct == 1
+            assert agent.predictions_incorrect == 0
+
+    def test_resolve_no_simulation_is_noop(self, db: Store) -> None:
+        """Prediction without turns doesn't crash."""
+        from forge.calibrate.resolver import update_agent_scores
+
+        sim = db.save_simulation(
+            mode="scenario", seed_text="Empty sim", agent_count=0, rounds=3,
+        )
+        pred = db.save_prediction(
+            simulation_id=sim.id, claim="No agents", confidence=50,
+        )
+        # Should not raise
+        count = update_agent_scores(db, pred.id, "true")
+        assert count == 0
+
+    def test_resolve_returns_count_of_updated_agents(self, db: Store) -> None:
+        """update_agent_scores returns number of agents updated."""
+        from forge.calibrate.resolver import update_agent_scores
+
+        sim_id, _agent_ids = _setup_simulation_with_agents(db)
+        pred = db.save_prediction(
+            simulation_id=sim_id, claim="Test", confidence=75,
+        )
+        count = update_agent_scores(db, pred.id, "true")
+        assert count == 3

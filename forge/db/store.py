@@ -110,6 +110,7 @@ class Store:
         self,
         *,
         status: str | None = None,
+        source: str | None = None,
         min_confidence: int | None = None,
         max_confidence: int | None = None,
     ) -> list[Hypothesis]:
@@ -118,6 +119,9 @@ class Store:
         if status is not None:
             query += " AND status = ?"
             params.append(status)
+        if source is not None:
+            query += " AND source = ?"
+            params.append(source)
         if min_confidence is not None:
             query += " AND confidence >= ?"
             params.append(min_confidence)

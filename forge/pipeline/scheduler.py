@@ -18,26 +18,29 @@ logger = logging.getLogger(__name__)
 async def run_scheduled_once(
     store: Store,
     llm: LLMClient | MockLLMClient,
+    **kwargs: object,
 ) -> dict:
     """Run a single scheduled pipeline cycle. Returns summary."""
-    return await run_pipeline_once(store, llm)
+    return await run_pipeline_once(store, llm, **kwargs)
 
 
 async def run_scheduled(
     store: Store,
     llm: LLMClient | MockLLMClient,
     interval_minutes: int = 240,
+    **kwargs: object,
 ) -> None:
     """Run pipeline cycles on a recurring interval. Runs indefinitely."""
     while True:
         try:
-            result = await run_pipeline_once(store, llm)
+            result = await run_pipeline_once(store, llm, **kwargs)
             ingestion = result["ingestion"]
             logger.info(
-                "Pipeline cycle complete: %d articles, %d claims, %d overdue",
+                "Pipeline cycle complete: %d articles, %d claims, %d overdue, %d auto-sims",
                 ingestion["articles_fetched"],
                 ingestion["claims_extracted"],
                 result["overdue_predictions"],
+                result.get("auto_simulations", 0),
             )
         except Exception:
             logger.exception("Pipeline cycle failed")
