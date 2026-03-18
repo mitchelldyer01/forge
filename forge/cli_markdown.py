@@ -79,10 +79,19 @@ def _render_turn(row: dict, round_num: int) -> str:
                 label = field.replace("_", " ").title()
                 quotes.append(f"> **{label}:** {val}")
     elif round_num == 2:
+        steel = content.get("steel_man")
+        if steel:
+            quotes.append(f"> **Steel-man:** {steel}")
+        mechanism = content.get("concrete_mechanism")
+        if mechanism and mechanism.lower() != "none":
+            quotes.append(f"> **Mechanism:** {mechanism}")
         val = content.get("key_point")
         if val:
             quotes.append(f"> **Key point:** {val}")
     elif round_num == 3:
+        justification = content.get("confidence_justification")
+        if justification:
+            quotes.append(f"> **Confidence basis:** {justification}")
         val = content.get("key_insight")
         if val:
             quotes.append(f"> **Key insight:** {val}")

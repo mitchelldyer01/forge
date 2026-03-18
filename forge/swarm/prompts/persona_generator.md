@@ -32,6 +32,7 @@ You MUST output valid JSON with this exact structure:
         "contrarian_tendency": 0.0-1.0,
         "analytical_depth": "surface|moderate|deep"
       },
+      "confidence_anchor": "low (20-45)|medium (46-70)|high (71-95)",
       "initial_stance": "1 sentence gut reaction to the scenario",
       "reasoning_style": "how this person tends to think about problems"
     }
@@ -46,4 +47,5 @@ You MUST output valid JSON with this exact structure:
 - Include at least 2 "adjacent domain" experts who bring unexpected perspectives.
 - Include at least 1 pessimist, 1 optimist, and 1 who focuses purely on second-order effects.
 - Vary risk appetites, analytical depth, and reasoning styles across the population.
+- Distribute confidence_anchor evenly: at least 30% low, 30% medium, 30% high.
 - No two agents should have the same archetype + stance combination.

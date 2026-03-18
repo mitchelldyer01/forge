@@ -129,11 +129,19 @@ def select_interactions(
     if len(selected) >= count:
         return selected[:count]
 
-    # 2. Most novel opposing argument
+    # 2. Most novel opposing argument — biased toward least-common position
+    #    when the agent is in the majority, to prevent minority crowding-out
     remaining = [t for t in opposing if t.id not in used_ids]
     if remaining:
+        novelty_candidates = remaining
+        if _is_majority_position(my_position, all_round1_turns):
+            least_common = _least_common_position(remaining)
+            if least_common:
+                lc_candidates = [t for t in remaining if t.position == least_common]
+                if lc_candidates:
+                    novelty_candidates = lc_candidates
         most_novel = max(
-            remaining,
+            novelty_candidates,
             key=lambda t: compute_novelty_score(t, all_round1_turns),
         )
         selected.append(most_novel)
@@ -161,6 +169,25 @@ def select_interactions(
         selected.append(turn)
 
     return selected[:count]
+
+
+def _is_majority_position(
+    position: str,
+    all_turns: list[SimulationTurn],
+) -> bool:
+    """Check if a position is held by >50% of agents."""
+    if not all_turns:
+        return False
+    count = sum(1 for t in all_turns if t.position == position)
+    return count > len(all_turns) / 2
+
+
+def _least_common_position(turns: list[SimulationTurn]) -> str | None:
+    """Return the least-common position among a set of turns."""
+    if not turns:
+        return None
+    counts: Counter[str] = Counter(t.position for t in turns)
+    return counts.most_common()[-1][0]
 
 
 def _select_by_contrarian(

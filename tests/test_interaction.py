@@ -234,6 +234,78 @@ class TestSelectInteractions:
 
 
 @pytest.mark.unit
+class TestMinorityDefense:
+    def test_select_majority_agent_sees_least_common_position(self):
+        """When majority agent has multiple opposing positions, novelty slot
+        prefers the least-common position to prevent crowding it out.
+
+        Setup: 8 oppose, 4 conditional, 2 support.
+        For an oppose agent, opposing = 4 conditional + 2 support.
+        The conditional agents have higher confidence and similar reasoning,
+        so without minority defense, all 3 slots could go to conditional.
+        The fix ensures the novelty slot picks from 'support' (least common).
+        """
+        agent = _make_persona("ap_me", "hawk")
+        my_turn = _make_turn("st_me", "ap_me", position="oppose", confidence=70)
+
+        turns = [my_turn]
+        personas = {"ap_me": agent}
+        # 7 more oppose agents
+        for i in range(7):
+            pid = f"ap_opp{i}"
+            tid = f"st_opp{i}"
+            turns.append(_make_turn(tid, pid, position="oppose", confidence=60 + i))
+            personas[pid] = _make_persona(pid, f"hawk_{i}")
+        # 4 conditional agents with high confidence
+        common_reasoning = "phased implementation with regulatory sandbox"
+        for i in range(4):
+            pid = f"ap_cond{i}"
+            tid = f"st_cond{i}"
+            turns.append(_make_turn(
+                tid, pid, position="conditional", confidence=80 + i,
+                reasoning=common_reasoning,
+            ))
+            personas[pid] = _make_persona(pid, f"moderate_{i}")
+        # 2 support agents with lower confidence and SAME reasoning
+        # (so novelty won't differentiate them)
+        for i in range(2):
+            pid = f"ap_sup{i}"
+            tid = f"st_sup{i}"
+            turns.append(_make_turn(
+                tid, pid, position="support", confidence=55 + i,
+                reasoning=common_reasoning,
+            ))
+            personas[pid] = _make_persona(pid, f"dove_{i}")
+
+        selected = select_interactions(agent, my_turn, turns, personas, count=3)
+        selected_positions = [t.position for t in selected]
+        # Must include at least one support (the least-common opposing position)
+        assert "support" in selected_positions
+
+    def test_minority_agent_selection_unchanged(self):
+        """Minority agents still get normal selection (opposing = majority views)."""
+        agent = _make_persona("ap_me", "dove")
+        my_turn = _make_turn("st_me", "ap_me", position="support", confidence=60)
+
+        # 8 oppose, 2 support (including me)
+        turns = [my_turn]
+        personas = {"ap_me": agent}
+        for i in range(8):
+            pid = f"ap_opp{i}"
+            tid = f"st_opp{i}"
+            turns.append(_make_turn(tid, pid, position="oppose", confidence=60 + i))
+            personas[pid] = _make_persona(pid, f"hawk_{i}")
+        pid = "ap_sup1"
+        tid = "st_sup1"
+        turns.append(_make_turn(tid, pid, position="support", confidence=55))
+        personas[pid] = _make_persona(pid, "dove_1")
+
+        selected = select_interactions(agent, my_turn, turns, personas, count=3)
+        # Minority agent should see opposing (majority) views — all should be oppose
+        assert all(t.position == "oppose" for t in selected)
+
+
+@pytest.mark.unit
 class TestComputeNoveltyScore:
     def test_unique_words_score_higher(self):
         """A turn with unusual vocabulary scores higher than common vocabulary."""

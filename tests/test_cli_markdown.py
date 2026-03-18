@@ -168,3 +168,73 @@ class TestRenderTurnsMarkdown:
         result = render_turns_markdown(_sample_rows(), _make_sim())
         box_drawing = re.compile(r"[\u2500-\u257F]")
         assert not box_drawing.search(result), "Output contains box-drawing characters"
+
+    def test_render_turn_r2_shows_steel_man(self):
+        from forge.cli_markdown import render_turns_markdown
+
+        content = {
+            "turn_type": "challenge",
+            "position": "oppose",
+            "confidence": 70,
+            "reasoning": "Test reasoning",
+            "steel_man": "The strongest argument for the other side is X",
+            "key_point": "My main point",
+        }
+        rows = [_make_row(2, "analyst", "oppose", 70, turn_type="challenge", content=content)]
+        result = render_turns_markdown(rows, _make_sim())
+        assert "**Steel-man:**" in result
+        assert "strongest argument for the other side is X" in result
+
+    def test_render_turn_r2_shows_concrete_mechanism(self):
+        from forge.cli_markdown import render_turns_markdown
+
+        content = {
+            "turn_type": "refine",
+            "position": "conditional",
+            "confidence": 65,
+            "reasoning": "Test reasoning",
+            "concrete_mechanism": "Require annual audits with €500K penalty threshold",
+            "key_point": "My point",
+        }
+        rows = [_make_row(
+            2, "policy_analyst", "conditional", 65,
+            turn_type="refine", content=content,
+        )]
+        result = render_turns_markdown(rows, _make_sim())
+        assert "**Mechanism:**" in result
+        assert "annual audits" in result
+
+    def test_render_turn_r2_skips_none_mechanism(self):
+        from forge.cli_markdown import render_turns_markdown
+
+        content = {
+            "turn_type": "challenge",
+            "position": "oppose",
+            "confidence": 70,
+            "reasoning": "Test reasoning",
+            "concrete_mechanism": "none",
+            "key_point": "My point",
+        }
+        rows = [_make_row(2, "critic", "oppose", 70, turn_type="challenge", content=content)]
+        result = render_turns_markdown(rows, _make_sim())
+        assert "**Mechanism:**" not in result
+
+    def test_render_turn_r3_shows_confidence_justification(self):
+        from forge.cli_markdown import render_turns_markdown
+
+        content = {
+            "final_position": "oppose",
+            "confidence": 85,
+            "conviction_delta": 10,
+            "changed_mind": False,
+            "reasoning": "Final synthesis",
+            "confidence_justification": "Legal precedent from MiFID II compliance failures",
+            "key_insight": "Test insight",
+        }
+        rows = [_make_row(
+            3, "legal_expert", "oppose", 85,
+            turn_type="convergence", content=content,
+        )]
+        result = render_turns_markdown(rows, _make_sim())
+        assert "**Confidence basis:**" in result
+        assert "MiFID II" in result

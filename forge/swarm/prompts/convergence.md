@@ -27,6 +27,8 @@ Consider whether any of these should influence your final position.
 
 Give your final position on this scenario. Account for everything you've heard. Be explicit about whether and why you changed your mind.
 
+Before finalizing, consider: what is the strongest argument AGAINST your current position? If you cannot articulate one, your confidence may be too high.
+
 Your conviction_delta must reflect the actual change in your thinking — not an arbitrary number. If your position didn't change, explain what reinforced it. If it did change, name the specific argument that moved you.
 
 ## Output Format

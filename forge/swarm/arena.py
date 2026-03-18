@@ -240,6 +240,7 @@ async def _run_round1(
             reasoning_style=persona.get("reasoning_style", "analytical"),
             seed_text=seed.text,
             seed_context=seed.context or "",
+            confidence_anchor=persona.get("confidence_anchor", "medium (46-70)"),
         )
         async with sem:
             response = await llm.complete(
