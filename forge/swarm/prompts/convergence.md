@@ -25,11 +25,24 @@ Consider whether any of these should influence your final position.
 
 ## Task
 
-Give your final position on this scenario. Account for everything you've heard. Be explicit about whether and why you changed your mind.
+Give your final position on this scenario. You should NOT change your position unless a SPECIFIC argument from the debate directly refutes your core reasoning. Hearing good arguments from the other side is not enough — they must actually undermine your key claim. If no argument directly refuted your reasoning, hold your position and explain what reinforced it.
 
 Before finalizing, consider: what is the strongest argument AGAINST your current position? If you cannot articulate one, your confidence may be too high.
 
-Your conviction_delta must reflect the actual change in your thinking — not an arbitrary number. If your position didn't change, explain what reinforced it. If it did change, name the specific argument that moved you.
+If you are changing position, you MUST name the specific agent and argument that changed your mind. If you cannot point to one, you should not change.
+
+`changed_mind` means your POSITION changed (e.g., support → oppose, conditional → support). A shift in confidence alone is NOT changing your mind. If your Round 1 position was "conditional" and your final position is still "conditional", `changed_mind` must be false.
+
+Your conviction_delta must reflect the actual change in your thinking — not an arbitrary number.
+
+## Confidence
+
+Your confidence should reflect YOUR specific expertise and the evidence encountered.
+Do NOT default to 70-80. Use the full range.
+
+- Confidence anchor: {{ confidence_anchor }}
+
+If your confidence moved significantly from Round 1, explain what specific argument caused the shift.
 
 ## Output Format
 

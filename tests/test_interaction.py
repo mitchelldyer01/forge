@@ -70,7 +70,9 @@ def _make_turn(
 @pytest.mark.unit
 class TestSelectInteractions:
     def test_select_strongest_opposing(self):
-        """Selects the highest-confidence opposing turn first."""
+        """Selects a high-confidence opposing turn (weighted random)."""
+        import random as rng_mod
+
         agent = _make_persona("ap_me", "optimist")
         my_turn = _make_turn("st_me", "ap_me", position="support", confidence=60)
 
@@ -87,10 +89,14 @@ class TestSelectInteractions:
             "ap_ally": _make_persona("ap_ally", "bull"),
         }
 
-        selected = select_interactions(agent, my_turn, turns, personas, count=1)
+        # With fixed seed, selection is deterministic
+        selected = select_interactions(
+            agent, my_turn, turns, personas, count=1,
+            rng=rng_mod.Random(42),
+        )
         assert len(selected) == 1
-        # Should pick the highest-confidence opposing turn
-        assert selected[0].id == "st_opp2"
+        # Should pick an opposing turn (not ally)
+        assert selected[0].position == "oppose"
 
     def test_select_contrarian(self):
         """Includes the most contrarian opposing agent."""
@@ -303,6 +309,94 @@ class TestMinorityDefense:
         selected = select_interactions(agent, my_turn, turns, personas, count=3)
         # Minority agent should see opposing (majority) views — all should be oppose
         assert all(t.position == "oppose" for t in selected)
+
+
+@pytest.mark.unit
+class TestWeightedRandomSelection:
+    def test_select_weighted_random_high_confidence_favored(self):
+        """High-confidence turn selected more often but not always."""
+        import random as rng_mod
+
+        agent = _make_persona("ap_me", "analyst")
+        my_turn = _make_turn("st_me", "ap_me", position="support")
+        high = _make_turn("st_high", "ap_high", position="oppose", confidence=90)
+        low = _make_turn("st_low", "ap_low", position="oppose", confidence=10)
+        turns = [my_turn, high, low]
+        personas = {
+            "ap_me": agent,
+            "ap_high": _make_persona("ap_high", "hawk"),
+            "ap_low": _make_persona("ap_low", "dove"),
+        }
+
+        high_count = 0
+        for i in range(100):
+            selected = select_interactions(
+                agent, my_turn, turns, personas, count=1,
+                rng=rng_mod.Random(i),
+            )
+            if selected[0].id == "st_high":
+                high_count += 1
+
+        # High-confidence should win most of the time, but not always
+        assert high_count > 60, f"High selected {high_count}/100 times"
+        assert high_count < 100, f"High selected every time ({high_count}/100)"
+
+    def test_select_different_agents_see_different_views(self):
+        """5 same-position agents don't all see the same strongest opposing."""
+        import random as rng_mod
+
+        agents = []
+        turns = []
+        personas = {}
+        # 5 support agents
+        for i in range(5):
+            pid = f"ap_sup{i}"
+            tid = f"st_sup{i}"
+            a = _make_persona(pid, f"dove_{i}")
+            t = _make_turn(tid, pid, position="support", confidence=60)
+            agents.append(a)
+            turns.append(t)
+            personas[pid] = a
+        # 5 oppose agents with varying confidence
+        for i in range(5):
+            pid = f"ap_opp{i}"
+            tid = f"st_opp{i}"
+            t = _make_turn(
+                tid, pid, position="oppose", confidence=60 + i * 5,
+            )
+            turns.append(t)
+            personas[pid] = _make_persona(pid, f"hawk_{i}")
+
+        first_picks = set()
+        for i, agent in enumerate(agents):
+            selected = select_interactions(
+                agent, turns[i], turns, personas, count=1,
+                rng=rng_mod.Random(i * 7),
+            )
+            first_picks.add(selected[0].id)
+
+        # Not all 5 agents should pick the same opposing turn
+        assert len(first_picks) > 1
+
+    def test_select_single_opposing_always_selected(self):
+        """When only 1 opposing turn exists, it's always selected."""
+        import random as rng_mod
+
+        agent = _make_persona("ap_me", "analyst")
+        my_turn = _make_turn("st_me", "ap_me", position="support")
+        opp = _make_turn("st_opp", "ap_opp", position="oppose", confidence=50)
+        turns = [my_turn, opp]
+        personas = {
+            "ap_me": agent,
+            "ap_opp": _make_persona("ap_opp", "critic"),
+        }
+
+        for seed in range(20):
+            selected = select_interactions(
+                agent, my_turn, turns, personas, count=1,
+                rng=rng_mod.Random(seed),
+            )
+            assert selected[0].id == "st_opp"
 
 
 @pytest.mark.unit

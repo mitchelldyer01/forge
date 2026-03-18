@@ -49,3 +49,13 @@ You MUST output valid JSON with this exact structure:
 - Vary risk appetites, analytical depth, and reasoning styles across the population.
 - Distribute confidence_anchor evenly: at least 30% low, 30% medium, 30% high.
 - No two agents should have the same archetype + stance combination.
+
+### Stance Diversity
+
+The population MUST include diverse initial stances:
+- At least 25% should lean toward supporting the scenario's premise
+- At least 25% should lean toward opposing it
+- The rest may be conditional, neutral, or nuanced
+- initial_stance must clearly signal the agent's leaning
+
+Do NOT generate a population where most agents hold the same view. Strong disagreement produces better debate.

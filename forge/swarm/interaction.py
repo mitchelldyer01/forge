@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 from collections import Counter
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from forge.db.models import AgentPersona, SimulationTurn
 
 logger = logging.getLogger(__name__)
@@ -87,12 +90,32 @@ def compute_novelty_score(
     return rare_count / len(my_words)
 
 
+def _weighted_random_choice(
+    turns: list[SimulationTurn],
+    weight_fn: Callable[[SimulationTurn], float],
+    rng: random.Random | None = None,
+) -> SimulationTurn:
+    """Select a turn using weighted random sampling.
+
+    Higher weight_fn values make a turn more likely to be chosen,
+    but don't guarantee it. Prevents all agents from seeing the
+    exact same selection.
+    """
+    if len(turns) == 1:
+        return turns[0]
+    r = rng or random.Random()
+    weights = [max(weight_fn(t), 1.0) for t in turns]
+    return r.choices(turns, weights=weights, k=1)[0]
+
+
 def select_interactions(
     agent: AgentPersona,
     agent_turn: SimulationTurn,
     all_round1_turns: list[SimulationTurn],
     all_personas: dict[str, AgentPersona],
     count: int = 3,
+    *,
+    rng: random.Random | None = None,
 ) -> list[SimulationTurn]:
     """Select opposing views for an agent to respond to in Round 2.
 
@@ -121,8 +144,10 @@ def select_interactions(
     selected: list[SimulationTurn] = []
     used_ids: set[str] = set()
 
-    # 1. Strongest opposing argument (highest confidence)
-    strongest = max(opposing, key=lambda t: t.confidence or 0)
+    # 1. Strongest opposing argument (weighted random by confidence)
+    strongest = _weighted_random_choice(
+        opposing, lambda t: float(t.confidence or 0), rng=rng,
+    )
     selected.append(strongest)
     used_ids.add(strongest.id)
 
@@ -140,9 +165,10 @@ def select_interactions(
                 lc_candidates = [t for t in remaining if t.position == least_common]
                 if lc_candidates:
                     novelty_candidates = lc_candidates
-        most_novel = max(
+        most_novel = _weighted_random_choice(
             novelty_candidates,
-            key=lambda t: compute_novelty_score(t, all_round1_turns),
+            lambda t: compute_novelty_score(t, all_round1_turns),
+            rng=rng,
         )
         selected.append(most_novel)
         used_ids.add(most_novel.id)

@@ -90,6 +90,80 @@ class TestBuildDebateDigest:
         digest = build_debate_digest([], "ap_me", {})
         assert digest == ""
 
+    def test_digest_includes_all_represented_positions(self):
+        """Digest includes at least one entry from each position."""
+        personas = {}
+        turns = []
+        # 7 support turns with high novelty vocabulary
+        for i in range(7):
+            ap_id = f"ap_sup{i}"
+            personas[ap_id] = _make_persona(ap_id, f"supporter_{i}")
+            turns.append(_make_turn(
+                f"st_sup{i}", ap_id,
+                position="support",
+                key_point=f"unique support point {i}",
+                reasoning=f"novel argument about topic {i} regarding aspect {i}",
+            ))
+        # 3 oppose turns with less novel vocabulary
+        for i in range(3):
+            ap_id = f"ap_opp{i}"
+            personas[ap_id] = _make_persona(ap_id, f"opposer_{i}")
+            turns.append(_make_turn(
+                f"st_opp{i}", ap_id,
+                position="oppose",
+                key_point=f"opposition point {i}",
+                reasoning="common regulation argument about oversight",
+            ))
+
+        digest = build_debate_digest(turns, "ap_exclude", personas, max_items=5)
+        assert "oppose" in digest, "Digest missing oppose position"
+
+    def test_digest_philosopher_capture_prevented(self):
+        """One articulate agent doesn't dominate the entire digest."""
+        personas = {}
+        turns = []
+        # 5 conditional turns with similar reasoning
+        for i in range(5):
+            ap_id = f"ap_cond{i}"
+            personas[ap_id] = _make_persona(ap_id, f"moderate_{i}")
+            turns.append(_make_turn(
+                f"st_cond{i}", ap_id,
+                position="conditional",
+                key_point=f"conditional point {i}",
+                reasoning="phased implementation with regulatory sandbox",
+            ))
+        # 1 oppose turn with very unique vocabulary
+        ap_id = "ap_philosopher"
+        personas[ap_id] = _make_persona(ap_id, "philosopher")
+        turns.append(_make_turn(
+            "st_phil", ap_id,
+            position="oppose",
+            key_point="epistemic humility demands restraint",
+            reasoning="deontological framework compels precautionary abstention",
+        ))
+
+        digest = build_debate_digest(turns, "ap_exclude", personas, max_items=5)
+        # Must include at least one conditional entry, not just the philosopher
+        assert "conditional" in digest
+
+    def test_digest_single_position_still_works(self):
+        """Digest works when all turns share the same position."""
+        personas = {}
+        turns = []
+        for i in range(5):
+            ap_id = f"ap_{i}"
+            personas[ap_id] = _make_persona(ap_id, f"type_{i}")
+            turns.append(_make_turn(
+                f"st_{i}", ap_id,
+                position="conditional",
+                key_point=f"point {i}",
+                reasoning=f"unique argument number {i} about aspect {i}",
+            ))
+
+        digest = build_debate_digest(turns, "ap_exclude", personas, max_items=5)
+        entries = [line for line in digest.strip().split("\n") if line.startswith("- ")]
+        assert len(entries) >= 1
+
     def test_formats_archetype_and_key_point(self):
         """Output contains archetype names and key points."""
         personas = {

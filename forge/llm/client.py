@@ -150,8 +150,18 @@ class LLMClient:
             and response_format.get("type") == "json_object"
         )
 
+        # Disable thinking mode for JSON requests — models like Qwen3
+        # spend all tokens reasoning and never produce actual content
+        if wants_json:
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+
         raw = await self._request_with_retry(payload)
-        content = raw["choices"][0]["message"]["content"]
+        message = raw["choices"][0]["message"]
+        content = message.get("content") or ""
+        # Qwen3 and similar models put output in reasoning_content
+        # when in thinking mode; fall back to it if content is empty
+        if not content.strip():
+            content = message.get("reasoning_content") or ""
         token_count = raw.get("usage", {}).get("completion_tokens", 0)
 
         if not wants_json:
@@ -180,7 +190,10 @@ class LLMClient:
                     "max_tokens": int(payload.get("max_tokens", 2048) * 1.5),
                 }
             raw = await self._request_with_retry(retry_payload)
-            content = raw["choices"][0]["message"]["content"]
+            message = raw["choices"][0]["message"]
+            content = message.get("content") or ""
+            if not content.strip():
+                content = message.get("reasoning_content") or ""
             token_count = raw.get("usage", {}).get("completion_tokens", 0)
             try:
                 parsed = _extract_json(content)

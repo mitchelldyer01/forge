@@ -389,6 +389,9 @@ async def _run_round3(
             r1_reasoning=r1_data.get("reasoning", ""),
             r2_summary=r2_data.get("reasoning", "No interaction recorded."),
             debate_digest=digest,
+            confidence_anchor=persona.get(
+                "confidence_anchor", "medium (46-70)",
+            ),
         )
 
         async with sem:

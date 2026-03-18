@@ -39,8 +39,33 @@ def build_debate_digest(
         (compute_novelty_score(t, r2_turns), t)
         for t in others
     ]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    top = scored[:max_items]
+
+    # Position-balanced selection: guarantee at least one entry per position
+    by_position: dict[str, list[tuple[float, SimulationTurn]]] = {}
+    for score, turn in scored:
+        pos = turn.position or "neutral"
+        by_position.setdefault(pos, []).append((score, turn))
+    for pos in by_position:
+        by_position[pos].sort(key=lambda x: x[0], reverse=True)
+
+    # Phase 1: top-novelty entry from each position
+    selected: list[tuple[float, SimulationTurn]] = []
+    used_ids: set[str] = set()
+    for pos in by_position:
+        entry = by_position[pos][0]
+        selected.append(entry)
+        used_ids.add(entry[1].id)
+
+    # Phase 2: fill remaining slots by novelty across all positions
+    remaining = [(s, t) for s, t in scored if t.id not in used_ids]
+    remaining.sort(key=lambda x: x[0], reverse=True)
+    for entry in remaining:
+        if len(selected) >= max_items:
+            break
+        selected.append(entry)
+
+    selected.sort(key=lambda x: x[0], reverse=True)
+    top = selected[:max_items]
 
     lines: list[str] = []
     for _, turn in top:
