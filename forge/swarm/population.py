@@ -149,6 +149,7 @@ async def generate_population(
     for agents in batch_results:
         all_agents.extend(agents)
     all_agents = _deduplicate_agents(all_agents)
+    all_agents = all_agents[:count]
 
     personas: list[AgentPersona] = []
     for agent in all_agents:

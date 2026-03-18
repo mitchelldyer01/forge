@@ -355,6 +355,26 @@ class TestGeneratePopulationBatching:
         assert "policy_analyst" in archetypes
         assert "tech_optimist" in archetypes
 
+    async def test_generate_population_caps_at_requested_count(
+        self, seed: SeedMaterial, mock_llm, db: Store,
+    ):
+        """Population is capped at requested count even if LLM over-generates."""
+        # Request 3, but mock returns 5 per batch (2 batches = 10 total)
+        count = 3
+        batch_responses = [
+            {"agents": [
+                {"archetype": f"type_a{i}", "name": f"Agent A{i}"}
+                for i in range(5)
+            ]},
+            {"agents": [
+                {"archetype": f"type_b{i}", "name": f"Agent B{i}"}
+                for i in range(5)
+            ]},
+        ]
+        mock_llm.set_responses(batch_responses)
+        personas = await generate_population(seed, mock_llm, db, count=count)
+        assert len(personas) <= count
+
     async def test_generate_population_retries_failed_batch(
         self, seed: SeedMaterial, db: Store,
     ):

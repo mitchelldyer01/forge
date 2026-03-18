@@ -103,3 +103,18 @@ class TestConvergencePrompt:
         """Convergence prompt includes the confidence_anchor value."""
         result = _render_convergence(confidence_anchor="low (20-45)")
         assert "low (20-45)" in result
+
+    def test_convergence_prompt_requires_specific_claim(self):
+        """Convergence prompt requires unique perspective in reasoning."""
+        result = _render_convergence()
+        assert "unique to YOUR perspective" in result
+
+    def test_convergence_prompt_defines_conviction_delta(self):
+        """Convergence prompt defines conviction_delta as confidence change."""
+        result = _render_convergence()
+        assert "absolute change in confidence" in result
+
+    def test_convergence_prompt_justification_requires_counterargument(self):
+        """Confidence justification requires naming counterarguments."""
+        result = _render_convergence()
+        assert "strongest argument AGAINST" in result

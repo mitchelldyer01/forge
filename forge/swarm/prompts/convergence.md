@@ -33,7 +33,7 @@ If you are changing position, you MUST name the specific agent and argument that
 
 `changed_mind` means your POSITION changed (e.g., support → oppose, conditional → support). A shift in confidence alone is NOT changing your mind. If your Round 1 position was "conditional" and your final position is still "conditional", `changed_mind` must be false.
 
-Your conviction_delta must reflect the actual change in your thinking — not an arbitrary number.
+Your reasoning must include at least one specific claim that is unique to YOUR perspective — a named precedent, a concrete mechanism, a quantitative estimate, or a falsifiable consequence. Do not simply summarize the debate or repeat common themes.
 
 ## Confidence
 
@@ -52,10 +52,10 @@ You MUST output valid JSON:
 {
   "final_position": "support|oppose|conditional|neutral",
   "confidence": 0-100,
-  "conviction_delta": 0 to 100,
+  "conviction_delta": "absolute change in confidence from Round 1 (e.g., if R1=65 and now 75, delta is 10)",
   "changed_mind": true|false,
   "reasoning": "your final synthesis (2-3 sentences)",
-  "confidence_justification": "one sentence on what specific evidence or argument most influenced your final confidence number",
+  "confidence_justification": "name the strongest argument AGAINST your position and explain why it did not change your mind (or did)",
   "key_insight": "the most important takeaway from this debate"
 }
 ```
