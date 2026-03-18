@@ -312,6 +312,7 @@ def turns(
     agent: str | None = typer.Option(None, "--agent", "-a", help="Filter by archetype"),
     detail: bool = typer.Option(False, "--detail", "-d", help="Show full LLM content"),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON"),
+    md: bool = typer.Option(False, "--md", "--markdown", help="Output as markdown (LLM-friendly)"),
     pager: bool = typer.Option(False, "--pager", help="Use interactive pager"),
 ) -> None:
     """Browse LLM responses from simulation runs."""
@@ -363,6 +364,11 @@ def turns(
     if json_output:
         import json as json_mod
         typer.echo(json_mod.dumps(rows, indent=2, default=str))
+        return
+
+    if md:
+        from forge.cli_markdown import render_turns_markdown
+        typer.echo(render_turns_markdown(rows, sim))
         return
 
     output_console = Console() if pager else console
@@ -454,6 +460,7 @@ def simulate(
     agents: int | None = typer.Option(None, "--agents", "-a", help="Number of agents"),
     rounds: int | None = typer.Option(None, "--rounds", "-r", help="Number of rounds"),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON"),
+    md: bool = typer.Option(False, "--md", "--markdown", help="Output as markdown (LLM-friendly)"),
 ) -> None:
     """Run a full swarm simulation on a scenario."""
     from forge.swarm.arena import run_simulation
@@ -494,6 +501,12 @@ def simulate(
             ],
         }
         typer.echo(json.dumps(output, indent=2))
+        return
+
+    if md:
+        from forge.cli_markdown import render_turns_markdown
+        rows = store.list_turns_with_agent(result["simulation"].id)
+        typer.echo(render_turns_markdown(rows, result["simulation"]))
         return
 
     _render_simulation(result)
