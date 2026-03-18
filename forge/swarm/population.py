@@ -151,6 +151,23 @@ async def generate_population(
     all_agents = _deduplicate_agents(all_agents)
     all_agents = all_agents[:count]
 
+    # Backfill if dedup/failures left us short
+    backfill_attempts = 0
+    while len(all_agents) < count and backfill_attempts < 2:
+        backfill_attempts += 1
+        shortfall = count - len(all_agents)
+        logger.info(
+            "Population shortfall: have %d, need %d. Backfill attempt %d.",
+            len(all_agents), count, backfill_attempts,
+        )
+        try:
+            extra = await _generate_batch(seed, llm, shortfall)
+        except Exception:
+            logger.warning("Backfill batch %d failed, giving up.", backfill_attempts)
+            break
+        extra = _deduplicate_agents(all_agents + extra)[len(all_agents):]
+        all_agents.extend(extra[:shortfall])
+
     personas: list[AgentPersona] = []
     for agent in all_agents:
         archetype = agent.get("archetype", "unknown")

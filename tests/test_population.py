@@ -130,7 +130,7 @@ class TestGeneratePopulation:
         """The LLM is called with a prompt containing the seed text."""
         mock_llm.set_response({"agents": []})
         await generate_population(seed, mock_llm, db, count=BATCH_SIZE)
-        assert mock_llm.call_count == 1
+        assert mock_llm.call_count >= 1
         last_msg = mock_llm.last_messages[-1]["content"]
         assert "EU announces strict AI agent regulations" in last_msg
 
@@ -374,6 +374,45 @@ class TestGeneratePopulationBatching:
         mock_llm.set_responses(batch_responses)
         personas = await generate_population(seed, mock_llm, db, count=count)
         assert len(personas) <= count
+
+    async def test_generate_population_backfills_on_shortfall(
+        self, seed: SeedMaterial, mock_llm, db: Store,
+    ):
+        """When dedup/failure leaves fewer agents than requested, backfill."""
+        # Request 5, but first batch only returns 3 (simulating under-delivery)
+        # Backfill call returns the remaining 2
+        mock_llm.set_responses([
+            {"agents": [
+                {"archetype": "analyst", "name": "A"},
+                {"archetype": "optimist", "name": "B"},
+                {"archetype": "skeptic", "name": "C"},
+            ]},
+            {"agents": [
+                {"archetype": "regulator", "name": "D"},
+                {"archetype": "founder", "name": "E"},
+            ]},
+        ])
+        personas = await generate_population(seed, mock_llm, db, count=5)
+        assert len(personas) == 5
+
+    async def test_generate_population_backfill_limited_to_two_attempts(
+        self, seed: SeedMaterial, mock_llm, db: Store,
+    ):
+        """Backfill gives up after 2 attempts — no infinite loop."""
+        # Request 5, first batch returns 3, backfill always returns empty
+        mock_llm.set_responses([
+            {"agents": [
+                {"archetype": "analyst", "name": "A"},
+                {"archetype": "optimist", "name": "B"},
+                {"archetype": "skeptic", "name": "C"},
+            ]},
+            {"agents": []},
+            {"agents": []},
+        ])
+        personas = await generate_population(seed, mock_llm, db, count=5)
+        # Should return 3 (what it has), not loop forever
+        assert len(personas) == 3
+        assert mock_llm.call_count == 3  # 1 initial + 2 backfill attempts
 
     async def test_generate_population_retries_failed_batch(
         self, seed: SeedMaterial, db: Store,
