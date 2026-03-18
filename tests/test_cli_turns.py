@@ -154,3 +154,40 @@ class TestTurnsCommand:
         result = runner.invoke(app, ["turns", sim.id[:10]])
         assert result.exit_code == 0
         assert "analyst" in result.output
+
+    def test_turns_md_output(self, db: Store, monkeypatch):
+        """--md outputs structured markdown with round headers."""
+        _patch_store(monkeypatch, db)
+        sim = db.save_simulation(mode="scenario", seed_text="AI regulation test")
+        persona = db.save_agent_persona(
+            archetype="tech_optimist",
+            persona_json='{"name": "Alice"}',
+        )
+        db.save_simulation_turn(
+            simulation_id=sim.id, round=1, agent_persona_id=persona.id,
+            turn_type="reaction",
+            content='{"position": "support", "reasoning": "Innovation first"}',
+            position="support", confidence=80,
+        )
+        result = runner.invoke(app, ["turns", sim.id, "--md"])
+        assert result.exit_code == 0
+        assert "# Simulation:" in result.output
+        assert "## Round 1" in result.output
+        assert "tech_optimist" in result.output
+        assert "Innovation first" in result.output
+
+    def test_turns_md_no_rich_markup(self, db: Store, monkeypatch):
+        """--md output contains no Rich markup tags."""
+        _patch_store(monkeypatch, db)
+        sim = db.save_simulation(mode="scenario", seed_text="Test")
+        persona = db.save_agent_persona(archetype="analyst", persona_json='{}')
+        db.save_simulation_turn(
+            simulation_id=sim.id, round=1, agent_persona_id=persona.id,
+            turn_type="reaction", content='{"position": "support"}',
+            position="support", confidence=70,
+        )
+        result = runner.invoke(app, ["turns", sim.id, "--md"])
+        assert result.exit_code == 0
+        assert "[bold]" not in result.output
+        assert "[red]" not in result.output
+        assert "[dim]" not in result.output
